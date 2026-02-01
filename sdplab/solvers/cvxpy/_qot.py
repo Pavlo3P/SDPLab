@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import cvxpy as cp
 
-from qotlib.qot import QOTPrimal, QOTDual, QOTProblem
+from ...qot import QOTPrimal, QOTDual, QOTProblem
 
 
 def solve_qot_dual(

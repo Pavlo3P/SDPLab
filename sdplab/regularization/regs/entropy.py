@@ -1,4 +1,4 @@
-from qotlib.core import DenseArray, jax_pytree_class
+from ...core import DenseArray, jax_pytree_class
 from .base import AbstractRegularizer
 
 

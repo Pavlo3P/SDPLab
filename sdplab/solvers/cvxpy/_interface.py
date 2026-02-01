@@ -1,5 +1,5 @@
-from qotlib.sdp import SDPDenseProblem, SDPProblem, SDPPrimal, SDPDual
-from qotlib.qot import QOTProblem
+from ...sdp import SDPDenseProblem, SDPProblem, SDPPrimal, SDPDual
+from ...qot import QOTProblem
 
 from ._sdp import solve_sdp_primal
 from ._qot import solve_qot_dual

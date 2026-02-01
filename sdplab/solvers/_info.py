@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from qotlib.core import DenseArray
-from qotlib.sdp import SDPPrimal, SDPDual
+from ..core import DenseArray
+from ..sdp import SDPPrimal, SDPDual
 
 
 @dataclass

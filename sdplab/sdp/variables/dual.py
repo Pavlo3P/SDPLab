@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from qotlib.core import Space, jax_pytree_class
+from ...core import Space, jax_pytree_class
 from ._base import SDPVar, Array
 
 

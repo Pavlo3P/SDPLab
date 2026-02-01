@@ -3,11 +3,11 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-from qotlib.core import (
+from ...core import (
     ArrayLike, DenseArray, LowRankMatrix,
     LinOp, BackendOps, BackendContext, Space
 )
-from qotlib.sdp.variables import SDPPrimal, SDPDual
+from ...sdp.variables import SDPPrimal, SDPDual
 
 
 @dataclass

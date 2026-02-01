@@ -1,7 +1,7 @@
 from functools import reduce
 from typing import Tuple, Sequence
 
-from qotlib.core import ArrayLike, DenseArray, Space, BackendContext
+from ..core import ArrayLike, DenseArray, Space, BackendContext
 
 
 def kron_all(ctx: BackendContext, factors: list[DenseArray]) -> DenseArray:

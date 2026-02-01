@@ -4,7 +4,7 @@ from typing import Tuple
 import numpy as np
 import cvxpy as cp
 
-from qotlib.sdp import SDPDenseProblem, SDPPrimal, SDPDual
+from ...sdp import SDPDenseProblem, SDPPrimal, SDPDual
 
 
 def solve_sdp_primal(

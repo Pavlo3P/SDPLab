@@ -5,10 +5,10 @@ import jax
 import jax.numpy as jnp
 from qutip import basis, tensor, qeye, ket2dm
 
-from qotlib.special._pauli_strings import generate_pauli_observables
-from qotlib.examples import thermal_gaussian_state, qobj_to_jnp
-from qotlib.utils import make_projector, make_herm
-from qotlib.sdp import SDPDenseProblem
+from ...special._pauli_strings import generate_pauli_observables
+from ...examples import thermal_gaussian_state, qobj_to_jnp
+from ...utils import make_projector, make_herm
+from ...sdp import SDPDenseProblem
 from ._build import make_qubit_tomography_sdp
 
 

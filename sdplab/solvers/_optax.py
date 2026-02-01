@@ -2,9 +2,9 @@ from functools import partial
 from dataclasses import dataclass, field
 from time import time as Time
 
-from qotlib.core import DenseArray
-from qotlib.regularization import SDPRegularized
-from qotlib.sdp import SDPDual
+from ..core import DenseArray
+from ..regularization import SDPRegularized
+from ..sdp import SDPDual
 from ._info import ConvergenceInfo
 
 

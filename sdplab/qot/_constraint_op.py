@@ -1,8 +1,8 @@
 from dataclasses import dataclass, field
-from typing import Sequence, Tuple, Any
+from typing import Tuple, Any
 
-from qotlib.core import LinOp, DenseArray, DenseHermitianMatrixSpace, jax_pytree_class
-from qotlib.linalg import _compute_ptraces, kron_sum, make_perm
+from ..core import LinOp, DenseArray, DenseHermitianMatrixSpace, jax_pytree_class
+from ..linalg import _compute_ptraces, kron_sum, make_perm
 from ._block_space import BlockMatrixSpace
 
 

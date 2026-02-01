@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Generic, TypeVar
 from dataclasses import dataclass
 
-from qotlib.core import ArrayLike, Space, jax_pytree_class
+from ...core import ArrayLike, Space, jax_pytree_class
 from ._base import SDPVar, Array
 
 @jax_pytree_class

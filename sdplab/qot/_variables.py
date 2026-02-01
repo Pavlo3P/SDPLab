@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from qotlib.core import DenseArray, DenseHermitianMatrixSpace, jax_pytree_class
-from qotlib.sdp import SDPDual, SDPPrimal
-from qotlib.sdp.variables.primal import Array
+from ..core import DenseArray, DenseHermitianMatrixSpace, jax_pytree_class
+from ..sdp import SDPDual, SDPPrimal
+from ..sdp.variables.primal import Array
 from ._block_space import BlockMatrixSpace
 
 @jax_pytree_class

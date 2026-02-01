@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-from qotlib.core import DenseArray, BackendContext, jax_pytree_class
-from qotlib.sdp import SDPProblem, SDPPrimal, SDPDual
+from ...core import DenseArray, BackendContext, jax_pytree_class
+from ...sdp import SDPProblem, SDPPrimal, SDPDual
 
 @jax_pytree_class
 @dataclass

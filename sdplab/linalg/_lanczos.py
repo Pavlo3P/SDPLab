@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Tuple, Callable
 
-from qotlib.core import BackendContext, DenseArray
+from ..core import BackendContext, DenseArray
 from ._misc import MVP
 
 

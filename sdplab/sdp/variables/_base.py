@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Generic, TypeVar, Tuple
 from abc import ABC, abstractmethod
 
-from qotlib.core import ArrayLike, Space, BackendContext, BackendOps
+from ...core import ArrayLike, Space, BackendContext, BackendOps
 
 Array = TypeVar("Array", bound=ArrayLike)
 

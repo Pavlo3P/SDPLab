@@ -1,7 +1,7 @@
 from typing import Any
 from dataclasses import dataclass
 
-from qotlib.core import Space, BackendContext, DenseArray
+from ..core import Space, BackendContext, DenseArray
 
 
 class BlockMatrixSpace(Space):

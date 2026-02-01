@@ -1,8 +1,8 @@
 from typing import Optional, Tuple
 import numpy as np
 
-from qotlib.core import BackendContext, DenseArray
-from qotlib.linalg import compute_ptraces
+from ...core import BackendContext, DenseArray
+from ...linalg import compute_ptraces
 
 
 def generate_random_qot(

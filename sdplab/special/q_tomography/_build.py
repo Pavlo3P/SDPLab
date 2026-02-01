@@ -1,6 +1,6 @@
 import jax.numpy as jnp
 
-from qotlib.sdp import SDPDenseProblem, SDPDual, SDPPrimal
+from ...sdp import SDPDenseProblem, SDPDual, SDPPrimal
 
 
 def make_qubit_tomography_sdp(

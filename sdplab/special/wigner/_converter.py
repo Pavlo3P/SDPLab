@@ -7,8 +7,8 @@ import jax.numpy as jnp
 from dataclasses import dataclass, field
 from typing import Union
 
-from qotlib.qot import QOTPrimal
-from qotlib.sdp import SDPPrimal
+from ...qot import QOTPrimal
+from ...sdp import SDPPrimal
 
 Primal = Union[QOTPrimal, SDPPrimal]
 Array = jnp.ndarray

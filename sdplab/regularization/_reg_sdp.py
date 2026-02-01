@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 
-from qotlib.core import DenseArray, jax_pytree_class
-from qotlib.sdp import SDPProblem, SDPPrimal, SDPDual
-from qotlib.regularization import AbstractRegularizer
+from ..core import DenseArray, jax_pytree_class
+from ..sdp import SDPProblem, SDPPrimal, SDPDual
+from ..regularization import AbstractRegularizer
 
 
 @jax_pytree_class

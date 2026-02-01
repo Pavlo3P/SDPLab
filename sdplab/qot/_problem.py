@@ -1,9 +1,9 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
-from qotlib.core import (
+from ..core import (
     DenseArray, LowRankMatrix, BackendContext, DenseHermitianMatrixSpace
 )
-from qotlib.sdp import SDPProblem, SDPDenseProblem, SDPDual, SDPPrimal
+from ..sdp import SDPProblem
 from ._variables import QOTDual, QOTPrimal
 from ._constraint_op import QOTConstraintOp
 

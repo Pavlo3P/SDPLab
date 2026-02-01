@@ -1,5 +1,5 @@
 from typing import Any, Callable
-from qotlib.core import BackendContext, DenseArray
+from ..core import BackendContext, DenseArray
 
 MVP = Callable[[Any], Any]
 
