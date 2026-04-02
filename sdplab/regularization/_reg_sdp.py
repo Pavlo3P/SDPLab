@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from ..core import DenseArray, jax_pytree_class
+from spacecore import DenseArray, jax_pytree_class
 from ..sdp import SDPProblem, SDPPrimal, SDPDual
 from ..regularization import AbstractRegularizer
 

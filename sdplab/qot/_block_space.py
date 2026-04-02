@@ -1,30 +1,29 @@
 from typing import Any
-from dataclasses import dataclass
 
-from ..core import Space, BackendContext, DenseArray
+from spacecore import VectorSpace, Context, DenseArray
 
 
-class BlockMatrixSpace(Space):
+class BlockMatrixSpace(VectorSpace):
     def __init__(
         self,
-        ctx: BackendContext,
         *,
         d: int,
         N: int,
         atol: float = 0.0,
         rtol: float = 0.0,
-        enforce_hermitian: bool = True,
+        enforce_herm: bool = True,
+        ctx: Context | str | None = None
     ):
-        if d <= 0:
-            raise ValueError("d must be positive.")
-        if N <= 0:
-            raise ValueError("N must be positive.")
+        if d <= 0 or type(d) is not int:
+            raise ValueError("d must be positive integer.")
+        if N <= 0 or type(N) is not int:
+            raise ValueError("N must be positive integer.")
+        shape = (N, d, d)
+        super(BlockMatrixSpace, self).__init__(shape, ctx)
 
         self.atol = float(atol)
         self.rtol = float(rtol)
-        self.enforce_hermitian = bool(enforce_hermitian)
-        shape = (N, d, d)
-        super(BlockMatrixSpace, self).__init__(ctx, shape)
+        self.enforce_herm = bool(enforce_herm)
 
     def is_hermitian(self, X: DenseArray) -> bool:
         ops = self.ctx.ops
@@ -58,52 +57,8 @@ class BlockMatrixSpace(Space):
         if x.dtype != self.ctx.dtype:
             raise TypeError(f"Expected dtype {self.ctx.dtype}, got {x.dtype}")
 
-        if self.enforce_hermitian and not self.is_hermitian(x):
+        if self.enforce_herm and not self.is_hermitian(x):
             raise TypeError("Block is not Hermitian (within the specified tolerances).")
-
-    def zeros(self) -> Any:
-        return self.ctx.ops.zeros(self.shape, dtype=self.ctx.dtype)
-
-    def add(self, x: Any, y: Any) -> Any:
-        self.check_member(x)
-        self.check_member(y)
-        return x + y
-
-    def scale(self, a: Any, x: Any) -> Any:
-        self.check_member(x)
-        return a * x
-
-    # ---------------------------------------------------------------------
-    # Geometry
-    # ---------------------------------------------------------------------
-
-    def inner(self, x: Any, y: Any) -> Any:
-        """
-        Inner product ⟨x, y⟩ for elements of this space.
-
-        Must support cross-representation pairing for all representation pairs
-        you want the space to accept; unsupported pairs should raise a clear
-        capability error.
-        """
-
-        self.check_member(x)
-        self.check_member(y)
-        return self.ctx.ops.vdot(x, y)
-
-    def norm(self, x: Any) -> Any:
-        """Induced norm ||x|| = sqrt(real(⟨x,x⟩)). Override if you can do better."""
-        self.check_member(x)
-        v = self.ctx.ops.real(self.inner(x, x))
-        # Backend-agnostic: assume scalar supports **0.5; if complex, spaces may
-        # want ctx.ops.real(v) here.
-        return v ** 0.5
-
-    def eigh(self, x: Any, k: int = None) -> Any:
-        raise NotImplementedError
-
-    # ---------------------------------------------------------------------
-    # Coordinate interface (optional but often useful)
-    # ---------------------------------------------------------------------
 
     def flatten(self, x: Any) -> DenseArray:
         """

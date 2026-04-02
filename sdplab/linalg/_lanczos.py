@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from typing import Tuple, Callable
 
-from ..core import BackendContext, DenseArray
+from spacecore import Context, DenseArray
 from ._misc import MVP
 
 
 def stochastic_lanczos(
-    ctx: BackendContext,
+    ctx: Context,
     mvp: MVP,
     initial_vector: DenseArray,
     *,

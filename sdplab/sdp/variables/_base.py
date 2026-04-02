@@ -1,26 +1,26 @@
 from __future__ import annotations
 
-from typing import Any, Generic, TypeVar, Tuple
-from abc import ABC, abstractmethod
+from typing import Any, Tuple
+from abc import abstractmethod
 
-from ...core import ArrayLike, Space, BackendContext, BackendOps
+from spacecore import ArrayLike, Space, Context
+from spacecore._contextual import ContextBound, ctx_manager
 
-Array = TypeVar("Array", bound=ArrayLike)
 
-class SDPVar(ABC, Generic[Array]):
-    space: Space
-
-    @property
-    def ops(self) -> BackendOps:
-        return self.space.ctx.ops
-
-    @property
-    def ctx(self) -> BackendContext:
-        return self.space.ctx
+class SDPVar(ContextBound):
+    
+    def __init__(
+        self,
+        space: Space,
+        ctx: Context | str | None = None,
+    ):
+        ctx = ctx_manager.resolve_context_priority(ctx, space)
+        super(SDPVar, self).__init__(ctx)
+        self.space = space.convert(ctx)
 
     @property
     @abstractmethod
-    def val(self) -> Array:
+    def val(self) -> ArrayLike:
         ...
 
     def __post_init__(self):
@@ -31,7 +31,7 @@ class SDPVar(ABC, Generic[Array]):
         return self.val.shape
 
     @abstractmethod
-    def _new_like(self, new_val: Array) -> "SDPVar":
+    def _new_like(self, new_val: ArrayLike) -> SDPVar:
         ...
 
     def __add__(self, other: Any):
@@ -67,13 +67,13 @@ class SDPVar(ABC, Generic[Array]):
         y = self.space.scale(1 / a, self.val)
         return self._new_like(y)
 
-    def axpy(self, a: Any, x: "SDPVar"):
+    def axpy(self, a: Any, x: SDPVar):
         if type(x) is not type(self):
             raise TypeError(f"axpy expects {type(self).__name__}, got {type(x).__name__}")
         y = self.space.axpy(a, x.val, self.val)
         return self._new_like(y)
 
-    def inner(self, other: "SDPVar"):
+    def inner(self, other: SDPVar):
         if type(other) is not type(self):
             raise TypeError(f"inner expects {type(self).__name__}, got {type(other).__name__}")
         return self.space.inner(self.val, other.val)

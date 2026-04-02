@@ -1,15 +1,15 @@
 from typing import Any, Callable
-from ..core import BackendContext, DenseArray
+from spacecore import Context, DenseArray
 
 MVP = Callable[[Any], Any]
 
-def make_projector(ctx: BackendContext, vec: DenseArray) -> DenseArray:
+def make_projector(ctx: Context, vec: DenseArray) -> DenseArray:
     """
-    Compute the rank-1 projector P = |v⟩⟨v| using BackendContext.
+    Compute the rank-1 projector P = |v⟩⟨v| using Context.
 
     Parameters
     ----------
-    ctx : BackendContext
+    ctx : Context
         Backend context defining numerical backend, dtype, and checks.
     vec : Any
         1-D dense array representing a vector.

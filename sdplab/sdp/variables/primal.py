@@ -1,25 +1,29 @@
 from __future__ import annotations
 
-from typing import Any, Generic, TypeVar
-from dataclasses import dataclass
-
-from ...core import ArrayLike, Space, jax_pytree_class
-from ._base import SDPVar, Array
+from typing import Tuple
+from spacecore import Space, jax_pytree_class, Context, ArrayLike, DenseArray
+from ._base import SDPVar
 
 @jax_pytree_class
-@dataclass
-class SDPPrimal(SDPVar[Array]):
-    space: Space
-    X: Array
+class SDPPrimal(SDPVar):
+    def __init__(
+        self,
+        space: Space,
+        X: ArrayLike,
+        ctx: Context | str | None = None,
+    ):
+        super(SDPPrimal, self).__init__(space, ctx)
+        self.space.check_member(X)
+        self.X = self.space.ctx.asarray(X)
 
     @property
-    def val(self) -> Array:
+    def val(self) -> ArrayLike:
         return self.X
 
-    def _new_like(self, new_val: Array) -> "SDPPrimal[Array]":
+    def _new_like(self, new_val: ArrayLike) -> SDPPrimal:
         return SDPPrimal(self.space, new_val)
 
-    def eigh(self, k: int = None) -> tuple[Array, Array]:
+    def eigh(self, k: int | None = None) -> Tuple[DenseArray, ArrayLike]:
         return self.space.eigh(self.X, k)
 
     def tree_flatten(self):

@@ -1,24 +1,42 @@
-from dataclasses import dataclass, field
-from typing import Tuple, Any
+from __future__ import annotations
 
-from ..core import LinOp, DenseArray, DenseHermitianMatrixSpace, jax_pytree_class
+from typing import Any
+
+from spacecore import DenseArray, HermitianSpace, jax_pytree_class, Context
+from spacecore.linop import LinOp
+from spacecore._contextual import ctx_manager
+
 from ..linalg import _compute_ptraces, kron_sum, make_perm
 from ._block_space import BlockMatrixSpace
 
 
 @jax_pytree_class
-@dataclass(slots=True)
-class QOTConstraintOp(LinOp[DenseHermitianMatrixSpace, BlockMatrixSpace]):
-    d: int = field(kw_only=True)
-    N: int = field(kw_only=True)
-    perms: Tuple[Tuple[int, ...], ...] = field(init=False)
-    cod: BlockMatrixSpace = field(init=False)
+class QOTConstraintOp(LinOp[HermitianSpace, BlockMatrixSpace]):
+    def __init__(self,
+                 *,
+                 d: int,
+                 N: int,
+                 atol: float = 0.0,
+                 rtol: float = 0.0,
+                 enforce_herm: bool = True,
+                 ctx: Context | str | None = None
+                 ):
+        if d <= 0 or type(d) is not int:
+            raise ValueError("d must be positive integer.")
+        if N <= 0 or type(N) is not int:
+            raise ValueError("N must be positive integer.")
 
-    def __post_init__(self) -> None:
-        dom = self.dom
-        d = self.d
-        N = self.N
-        self.cod = BlockMatrixSpace(dom.ctx, d=d, N=N, atol=dom.atol, rtol=dom.rtol, enforce_hermitian=dom.enforce_hermitian)
+        atol = float(atol)
+        rtol = float(rtol)
+        enforce_herm = bool(enforce_herm)
+
+        ctx = ctx_manager.normalize_context(ctx)
+        dom = HermitianSpace(d ** N, atol=atol, rtol=rtol, enforce_herm=enforce_herm, ctx=ctx)
+        cod = BlockMatrixSpace(d=d, N=N, atol=atol, rtol=rtol, enforce_herm=enforce_herm, ctx=ctx)
+        super(QOTConstraintOp, self).__init__(dom, cod, ctx)
+
+        self.d = d
+        self.N = N
         self.perms = tuple(make_perm(i, self.N) for i in range(self.N))
 
     def apply(self, X: DenseArray) -> DenseArray:
@@ -30,9 +48,20 @@ class QOTConstraintOp(LinOp[DenseHermitianMatrixSpace, BlockMatrixSpace]):
         return kron_sum(self.cod.ctx, y)
 
     def tree_flatten(self):
-        return (), (self.d, self.N, self.dom)
+        aux = (
+            self.d,
+            self.N,
+            self.dom.atol,
+            self.dom.rtol,
+            self.dom.enforce_herm,
+            self.cod.ctx,
+        )
+        return (), aux
 
     @classmethod
     def tree_unflatten(cls, aux, children):
-        d, N, dom = aux
-        return cls(dom, d=d, N=N)
+        d, N, atol, rtol, enforce_herm, ctx = aux
+        return cls(d=d, N=N, atol=atol, rtol=rtol, enforce_herm=enforce_herm, ctx=ctx)
+
+    def _convert(self, new_ctx: Context) -> QOTConstraintOp:
+        return QOTConstraintOp(d=self.d, N=self.N, atol=self.dom.atol, rtol=self.dom.rtol, enforce_herm=self.dom.enforce_herm, ctx=new_ctx)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Callable
-from ..core import Space
+from spacecore import Space
 
 from ._misc import MVP
 

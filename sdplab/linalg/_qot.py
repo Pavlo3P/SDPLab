@@ -1,17 +1,17 @@
 from functools import reduce
 from typing import Tuple, Sequence
 
-from ..core import ArrayLike, DenseArray, Space, BackendContext
+from spacecore import ArrayLike, DenseArray, Space, Context
 
 
-def kron_all(ctx: BackendContext, factors: list[DenseArray]) -> DenseArray:
+def kron_all(ctx: Context, factors: list[DenseArray]) -> DenseArray:
     """Left-folded Kronecker product of a Python list of matrices."""
     ops = ctx.ops
 
     return reduce(lambda A, B: ops.kron(A, B), factors)
 
 
-def kron_sum(ctx: BackendContext, blocks: DenseArray) -> DenseArray:
+def kron_sum(ctx: Context, blocks: DenseArray) -> DenseArray:
     ops = ctx.ops
     dtype = ctx.dtype
 
@@ -36,7 +36,7 @@ def make_perm(i: int, N: int) -> Tuple[int, ...]:
     )
 
 
-def _compute_ptraces(ctx: BackendContext, X: DenseArray, *, d: int, N: int, perms: Sequence[Tuple[int, ...]]) -> DenseArray:
+def _compute_ptraces(ctx: Context, X: DenseArray, *, d: int, N: int, perms: Sequence[Tuple[int, ...]]) -> DenseArray:
     ops = ctx.ops
     D_rest = d ** (N - 1)
 
@@ -51,6 +51,6 @@ def _compute_ptraces(ctx: BackendContext, X: DenseArray, *, d: int, N: int, perm
     return ops.stack([_single_ptrace(perm) for perm in perms], axis=0)
 
 
-def compute_ptraces(ctx: BackendContext, X: DenseArray, *, d: int, N: int) -> DenseArray:
+def compute_ptraces(ctx: Context, X: DenseArray, *, d: int, N: int) -> DenseArray:
     perms = tuple(make_perm(i, N) for i in range(N))
     return _compute_ptraces(ctx, X, d=d, N=N, perms=perms)

@@ -1,10 +1,7 @@
-from ._problem import QOTProblem
 from ._constraint_op import QOTConstraintOp
-from ._variables import QOTDual, QOTPrimal
+from ._block_space import BlockMatrixSpace
 
 __all__ = [
-    "QOTProblem",
     "QOTConstraintOp",
-    "QOTDual",
-    "QOTPrimal",
+    "BlockMatrixSpace",
 ]
