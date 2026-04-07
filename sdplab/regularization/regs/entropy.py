@@ -1,4 +1,4 @@
-from ...core import DenseArray, jax_pytree_class
+from spacecore import DenseArray, jax_pytree_class
 from .base import AbstractRegularizer
 
 

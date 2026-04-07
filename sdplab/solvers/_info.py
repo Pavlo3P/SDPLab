@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..core import DenseArray
+from spacecore import DenseArray
 from ..sdp import SDPPrimal, SDPDual
 
 

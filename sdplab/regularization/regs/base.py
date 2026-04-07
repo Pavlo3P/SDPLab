@@ -1,14 +1,17 @@
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from dataclasses import dataclass
 
-from ...core import DenseArray, BackendContext, jax_pytree_class
+from spacecore import DenseArray, Context, jax_pytree_class
+from spacecore._contextual import ContextBound
+
 from ...sdp import SDPProblem, SDPPrimal, SDPDual
 
 @jax_pytree_class
-@dataclass
-class AbstractRegularizer(ABC):
-    ctx: BackendContext
-    val: DenseArray
+@dataclass(init=False)
+class AbstractRegularizer(ContextBound):
+    def __init__(self, val: DenseArray, ctx: Context | str | None = None):
+        super(AbstractRegularizer, self).__init__(ctx)
+        self.val = self.ctx.asarray(val)
 
     @abstractmethod
     def phi(self, x: DenseArray) -> DenseArray:
@@ -63,4 +66,7 @@ class AbstractRegularizer(ABC):
     def tree_unflatten(cls, aux, children):
         (reg,) = children
         (ctx,) = aux
-        return cls(ctx, reg)
+        obj = cls.__new__(cls)
+        obj._ctx = ctx
+        obj.val = reg
+        return obj

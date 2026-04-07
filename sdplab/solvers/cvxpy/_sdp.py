@@ -4,6 +4,7 @@ from typing import Tuple
 import numpy as np
 import cvxpy as cp
 
+from spacecore import Context, NumpyOps
 from ...sdp import SDPDenseProblem, SDPPrimal, SDPDual
 
 
@@ -20,40 +21,41 @@ def solve_sdp_primal(
         s.t.       ⟨A_k, X⟩ = b_k,  k=1..m
                    X ⪰ 0
 
-    where data may be real (symmetric) or complex Hermitian.
+    where data may be real (symmetric) or complex (Hermitian).
 
-    Returns (SDPPrimal, SDPDual) using your dense wrappers.
+    Returns (SDPPrimal, SDPDual).
     """
 
     # 1) dense backend data
-    C_np = np.asarray(sdp.C)
-    A_np = np.asarray(sdp.A)
-    b_np = np.asarray(sdp.b)
-    tau = sdp.tau
-    m, n, _ = A_np.shape
+    np_ctx = Context(ops=NumpyOps(), dtype=sdp.ctx.dtype)
+    sdp_np = sdp.convert(np_ctx)
+    n = sdp_np.dom.shape[0]
+    m = sdp_np.cod.shape[0]
+
+    C = sdp_np.C
+    b = sdp_np.b
+    A = sdp_np.A.A
+    tau = sdp_np.tau
 
     # 2) detect complex data
-    is_complex = np.iscomplexobj(C_np) or np.iscomplexobj(A_np) or np.iscomplexobj(b_np)
+    is_complex = np.iscomplexobj(C) or np.iscomplexobj(A)
 
-    # 3) variable
     if is_complex:
-        # Complex Hermitian variable
         X = cp.Variable((n, n), hermitian=True)
+        eq_constraints = [cp.real(cp.trace(A[i] @ X)) == b[i] for i in range(m)]
+        constraints = list(eq_constraints)
+        if tau is not None:
+            constraints.append(cp.real(cp.trace(X)) == tau)
+        constraints.append(X >> 0)
+        objective = cp.Minimize(cp.real(cp.trace(C @ X)))
     else:
-        # Real symmetric variable
         X = cp.Variable((n, n), symmetric=True)
-
-    # 4) equality constraints  ⟨A_k, X⟩ = b_k
-    #    ⟨A, X⟩ = trace(A @ X) (for Hermitian A,X this equals trace(A^H X) and is real;
-    #    if data are complex, CVXPY splits equality into real/imag automatically).
-    eq_constraints = [cp.trace(A_np[i] @ X) == b_np[i] for i in range(m)]
-    constraints = list(eq_constraints)
-    if tau is not None:
-        constraints.append(cp.trace(X) == tau)
-    constraints.append(X >> 0)
-
-    # 5) objective: minimize ⟨C, X⟩
-    objective = cp.Minimize(cp.real(cp.trace(C_np @ X)))
+        eq_constraints = [cp.trace(A[i] @ X) == b[i] for i in range(m)]
+        constraints = list(eq_constraints)
+        if tau is not None:
+            constraints.append(cp.trace(X) == tau)
+        constraints.append(X >> 0)
+        objective = cp.Minimize(cp.trace(C @ X))
 
     # 6) solve
     prob = cp.Problem(objective, constraints)
@@ -63,11 +65,11 @@ def solve_sdp_primal(
         raise ValueError(f'{solver} solver did not return a solution.')
 
     # 7) pack results
-    X_val = sdp.A.dom.ctx.ops.asarray(X.value, dtype=sdp.A.dom.ctx.dtype)
+    X_val = sdp.ctx.asarray(X.value)
 
     y_val = [con.dual_value for con in eq_constraints]
-    y_val = sdp.A.cod.ctx.ops.asarray(y_val, dtype=sdp.A.cod.ctx.dtype)
+    y_val = sdp.ctx.asarray(y_val)
 
-    primal = SDPPrimal(sdp.A.dom, X_val)
-    dual   = SDPDual(sdp.A.cod, y_val)
+    primal = sdp.primal_from_array(X_val)
+    dual   = sdp.dual_from_array(y_val)
     return primal, dual
