@@ -3,7 +3,7 @@ import numpy as np
 
 from spacecore import Context, NumpyOps
 from .._constraint_op import QOTConstraintOp
-from ...sdp import SDPDenseProblem, SDPPrimal
+from ....sdp import SDPDenseProblem, SDPPrimal
 
 
 def generate_random_qot(
@@ -78,13 +78,14 @@ def generate_random_qot(
     evals, evecs = np.linalg.eigh(cost_matrix)
 
     # Compute ground state energy and density matrix
-    np_ctx = Context(NumpyOps(), dtype=np.complex128)
+    np_ctx = Context(NumpyOps(), dtype=np.complex128, enable_checks=False)
     gamma = sum(p * np.outer(v, v.conj()) for p, v in zip(proportions, evecs.T.conj()))
+    gamma = (gamma + gamma.T.conj()) * .5
     qot_op = QOTConstraintOp(d=d, N=N, atol=atol, rtol=rtol, enforce_herm=enforce_herm, ctx=np_ctx)
     marginals = qot_op.apply(gamma)
 
     # Define QOT problem & convert to target ctx
-    qot = SDPDenseProblem(cost_matrix, qot_op, marginals, np_ctx)
+    qot = SDPDenseProblem(cost_matrix, qot_op, marginals, ctx=np_ctx)
     qot = qot.convert(ctx)
 
     # Wrap example state into SDPPrimal
