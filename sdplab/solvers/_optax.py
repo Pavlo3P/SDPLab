@@ -2,7 +2,7 @@ from functools import partial
 from dataclasses import dataclass, field
 from time import time as Time
 
-from ..core import DenseArray
+from spacecore import DenseArray
 from ..regularization import SDPRegularized
 from ..sdp import SDPDual
 from ._info import ConvergenceInfo
