@@ -1,7 +1,7 @@
 from functools import reduce
 from typing import Tuple, Sequence
 
-from spacecore import ArrayLike, DenseArray, Space, Context
+from spacecore import DenseArray, Context
 
 
 def kron_all(ctx: Context, factors: list[DenseArray]) -> DenseArray:

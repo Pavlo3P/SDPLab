@@ -2,11 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from spacecore import DenseArray, HermitianSpace, jax_pytree_class, Context
-from spacecore.linop import LinOp
+from spacecore import DenseArray, HermitianSpace, jax_pytree_class, Context, LinOp
 from spacecore._contextual import ctx_manager
 
-from ..linalg import _compute_ptraces, kron_sum, make_perm
+from ._linalg import _compute_ptraces, kron_sum, make_perm
 from ._block_space import BlockMatrixSpace
 
 
