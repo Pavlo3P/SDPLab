@@ -1,4 +1,4 @@
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from dataclasses import dataclass
 
 from spacecore import DenseArray, Context, jax_pytree_class
@@ -66,4 +66,7 @@ class AbstractRegularizer(ContextBound):
     def tree_unflatten(cls, aux, children):
         (reg,) = children
         (ctx,) = aux
-        return cls(ctx, reg)
+        obj = cls.__new__(cls)
+        obj._ctx = ctx
+        obj.val = reg
+        return obj
