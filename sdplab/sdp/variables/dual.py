@@ -32,3 +32,6 @@ class SDPDual(SDPVar):
         (y,) = children
         (space,) = aux
         return cls(space, y)
+
+    def _convert(self, new_ctx: Context) -> SDPDual:
+        return SDPDual(self.space, self.y, new_ctx)

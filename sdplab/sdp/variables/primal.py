@@ -34,3 +34,6 @@ class SDPPrimal(SDPVar):
         (X,) = children
         (space,) = aux
         return cls(space, X)
+
+    def _convert(self, new_ctx: Context) -> SDPPrimal:
+        return SDPPrimal(self.space, self.X, new_ctx)

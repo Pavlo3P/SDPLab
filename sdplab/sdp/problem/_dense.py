@@ -29,3 +29,8 @@ class SDPDenseProblem(SDPProblem):
         """Eigendecomposition of A.T @ dual - C."""
         lhs = self.A.rapply(dual.y) - self.C
         return self.A.dom.eigh(lhs)
+
+    def _convert(self, new_ctx: Context) -> SDPDenseProblem:
+        new_C = new_ctx.asarray(self.C)
+        new_b = new_ctx.asarray(self.b)
+        return SDPDenseProblem(new_C, self.A, new_b, self.tau, new_ctx)
