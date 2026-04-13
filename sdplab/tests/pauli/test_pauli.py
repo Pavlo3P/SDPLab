@@ -155,3 +155,31 @@ def test_from_matrix_rejects_non_square():
 def test_from_matrix_rejects_dimension_not_power_of_two():
     with pytest.raises(ValueError, match="power of 2"):
         PauliSum.from_matrix(np.zeros((3, 3), dtype=np.complex128))
+
+
+def test_pauli_string_matmat_matches_materialized_action():
+    p = PauliString("YZ")
+    X = np.array(
+        [[1.0, 2.0],
+         [3.0, 4.0],
+         [5.0, 6.0],
+         [7.0, 8.0]],
+        dtype=np.complex128,
+    )
+    y_fast = np.asarray(p.matmat(X))
+    y_dense = np.asarray(p.materialize()) @ X
+    assert np.allclose(y_fast, y_dense)
+
+
+def test_pauli_sum_matmat_matches_materialized_action():
+    s = PauliSum(["XI", "YZ"], coeffs=[2.0, -0.5])
+    X = np.array(
+        [[1.0, -1.0, 0.0],
+         [2.0,  3.0, 1.0],
+         [0.5,  0.0, 4.0],
+         [3.0,  2.0, 5.0]],
+        dtype=np.complex128,
+    )
+    y_fast = np.asarray(s.matmat(X))
+    y_dense = np.asarray(s.materialize()) @ X
+    assert np.allclose(y_fast, y_dense)

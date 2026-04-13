@@ -97,6 +97,55 @@ def _combine_codes(left: Sequence[int], right: Sequence[int]) -> Tuple[complex, 
     return phase, tuple(out)
 
 
+def _apply_one_site_mat(
+    X: DenseArray,
+    code: int,
+    axis: int,
+    ops: BackendOps,
+) -> DenseArray:
+    """
+    Apply a single-qubit Pauli operator on a chosen tensor axis of X.
+
+    Parameters
+    ----------
+    X:
+        Tensor of shape (2, ..., 2, k) or more generally with a qubit axis of
+        size 2 at position `axis`.
+    code:
+        Encoded Pauli: 0 -> I, 1 -> X, 2 -> Y, 3 -> Z.
+    axis:
+        Qubit axis on which to act.
+    ops:
+        Backend ops object.
+
+    Returns
+    -------
+    DenseArray
+        Tensor with the same shape as X.
+    """
+    if code == 0:
+        return X
+
+    M = ops.asarray(pauli_matrices[_CODE_TO_PAULI[code]])
+
+    ndim = len(X.shape)
+    letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    if ndim + 1 > len(letters):
+        raise ValueError("Tensor rank too large for einsum index construction.")
+
+    in_idx = list(letters[:ndim])
+    out_idx = in_idx.copy()
+
+    contracted = in_idx[axis]
+    new_idx = letters[ndim]
+
+    # M has indices (new_idx, contracted)
+    out_idx[axis] = new_idx
+
+    eq = f"{new_idx}{contracted},{''.join(in_idx)}->{''.join(out_idx)}"
+    return ops.einsum(eq, M, X)
+
+
 @jax_pytree_class
 @dataclass(init=False)
 class PauliString(ContextBound):
@@ -242,7 +291,13 @@ class PauliString(ContextBound):
     def __matmul__(self, other):
         if isinstance(other, PauliString):
             return self.multiply(other)
-        return self.matvec(other)
+
+        other = self.ctx.ops.asarray(other)
+        if other.ndim == 1:
+            return self.matvec(other)
+        if other.ndim == 2:
+            return self.matmat(other)
+        return NotImplemented
 
     def __mul__(self, other):
         if isinstance(other, Number):
@@ -280,6 +335,41 @@ class PauliString(ContextBound):
 
     def _convert(self, ctx: Context) -> PauliString:
         return PauliString(self.identifier, phase=self.phase, ctx=ctx)
+
+    def matmat(self, X: DenseArray) -> DenseArray:
+        """
+        Left-multiply a matrix by this Pauli string.
+
+        If this Pauli string acts on n qubits, and X has shape (2**n, k), this
+        returns P X without materializing the full dense matrix P.
+
+        Args:
+            X:
+                Dense matrix of shape (2**n, k).
+
+        Returns:
+            DenseArray:
+                Matrix of shape (2**n, k).
+        """
+        X = self.ctx.ops.asarray(X)
+
+        if X.ndim != 2:
+            raise ValueError(f"`X` must have ndim 2, got shape {X.shape}")
+
+        expected_rows = 2 ** self.n_qubits
+        if X.shape[0] != expected_rows:
+            raise ValueError(
+                f"Expected X.shape[0] == {expected_rows}, got {X.shape[0]}"
+            )
+
+        k = X.shape[1]
+        Y = self.ctx.ops.reshape(X, (2,) * self.n_qubits + (k,))
+
+        for axis, code in enumerate(self.codes):
+            Y = _apply_one_site_mat(Y, code, axis=axis, ops=self.ctx.ops)
+
+        Y = self.ctx.ops.reshape(Y, (expected_rows, k))
+        return self.phase * Y if self.phase != 1 else Y
 
 
 @jax_pytree_class
@@ -413,6 +503,7 @@ class PauliSum(ContextBound):
         if isinstance(other, PauliString):
             new_terms = [term.multiply(other) for term in self.terms]
             return PauliSum(new_terms, coeffs=self.coeffs, ctx=self.ctx, simplify=True)
+
         if isinstance(other, PauliSum):
             new_terms = []
             new_coeffs = []
@@ -421,7 +512,13 @@ class PauliSum(ContextBound):
                     new_terms.append(term_l.multiply(term_r))
                     new_coeffs.append(coeff_l * coeff_r)
             return PauliSum(new_terms, coeffs=new_coeffs, ctx=self.ctx, simplify=True)
-        return self.matvec(other)
+
+        other = self.ctx.ops.asarray(other)
+        if other.ndim == 1:
+            return self.matvec(other)
+        if other.ndim == 2:
+            return self.matmat(other)
+        return NotImplemented
 
     def __add__(self, other):
         if isinstance(other, PauliString):
@@ -574,3 +671,37 @@ class PauliSum(ContextBound):
             coeffs=coeffs,
             ctx=obj_ctx,
         )
+
+    def matmat(self, X: DenseArray) -> DenseArray:
+        """
+        Left-multiply a matrix by this Pauli sum.
+
+        For
+            A = sum_j c_j P_j,
+        this returns
+            A X = sum_j c_j (P_j X),
+        without materializing A.
+
+        Args:
+            X:
+                Dense matrix of shape (2**n, k).
+
+        Returns:
+            DenseArray:
+                Matrix of shape (2**n, k).
+        """
+        X = self.ctx.ops.asarray(X)
+
+        if X.ndim != 2:
+            raise ValueError(f"`X` must have ndim 2, got shape {X.shape}")
+
+        expected_rows = 2 ** self.n_qubits
+        if X.shape[0] != expected_rows:
+            raise ValueError(
+                f"Expected X.shape[0] == {expected_rows}, got {X.shape[0]}"
+            )
+
+        acc = X * 0
+        for coeff, term in zip(self.coeffs, self.terms):
+            acc = acc + coeff * term.matmat(X)
+        return acc
