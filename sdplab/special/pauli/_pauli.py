@@ -1,3 +1,5 @@
+"""Constants and multiplication tables for single-qubit Pauli operators."""
+
 from typing import Tuple, Dict
 
 pauli_matrices: Dict[str, Tuple[Tuple[float, float | complex], Tuple[float | complex, float]]] = dict(

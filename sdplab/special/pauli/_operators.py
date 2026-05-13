@@ -1,3 +1,5 @@
+"""Symbolic Pauli-string operators and Pauli-basis linear combinations."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -14,6 +16,7 @@ from ._pauli import pauli_matrices, _PAULI_TO_CODE, _CODE_TO_PAULI, _MUL_TABLE
 
 
 def _validate_identifier(identifier: str) -> str:
+    """Validate and normalize a Pauli identifier string."""
     if not isinstance(identifier, str):
         raise TypeError(f"identifier must be str, got {type(identifier)!r}")
     if len(identifier) == 0:
@@ -28,18 +31,22 @@ def _validate_identifier(identifier: str) -> str:
 
 
 def _codes_from_identifier(identifier: str) -> Tuple[int, ...]:
+    """Encode a Pauli identifier as integer Pauli codes."""
     return tuple(_PAULI_TO_CODE[ch] for ch in identifier)
 
 
 def _identifier_from_codes(codes: Sequence[int]) -> str:
+    """Decode integer Pauli codes into a Pauli identifier string."""
     return "".join(_CODE_TO_PAULI[c] for c in codes)
 
 
 def _perm_to_front(axis: int, ndim: int) -> Tuple[int, ...]:
+    """Return a permutation that moves ``axis`` to the front."""
     return (axis,) + tuple(i for i in range(ndim) if i != axis)
 
 
 def _inverse_perm(perm: Sequence[int]) -> Tuple[int, ...]:
+    """Return the inverse of a tensor-axis permutation."""
     out = [0] * len(perm)
     for i, p in enumerate(perm):
         out[p] = i
@@ -47,6 +54,7 @@ def _inverse_perm(perm: Sequence[int]) -> Tuple[int, ...]:
 
 
 def _apply_one_site(X: DenseArray, code: int, axis: int, ops: BackendOps) -> DenseArray:
+    """Apply one encoded Pauli factor to one axis of a qubit tensor."""
     if code == 0:
         return X
 
@@ -69,6 +77,7 @@ def _apply_one_site(X: DenseArray, code: int, axis: int, ops: BackendOps) -> Den
 
 
 def _apply_codes_to_vector(codes: Sequence[int], x: DenseArray, ops: BackendOps, phase: complex = 1.0) -> DenseArray:
+    """Apply a full Pauli code word to a state vector without materializing it."""
     n_qubits = len(codes)
     expected_shape = (2 ** n_qubits,)
     if tuple(x.shape) != expected_shape:
@@ -83,6 +92,7 @@ def _apply_codes_to_vector(codes: Sequence[int], x: DenseArray, ops: BackendOps,
 
 
 def _combine_codes(left: Sequence[int], right: Sequence[int]) -> Tuple[complex, Tuple[int, ...]]:
+    """Multiply two encoded Pauli strings and return phase plus output codes."""
     if len(left) != len(right):
         raise ValueError(
             f"Pauli strings must have the same length, got {len(left)} and {len(right)}"
@@ -149,7 +159,15 @@ def _apply_one_site_mat(
 @jax_pytree_class
 @dataclass(init=False)
 class PauliString(ContextBound):
-    """Symbolic tensor-product Pauli operator with context-aware materialization."""
+    r"""Symbolic tensor-product Pauli operator.
+
+    A label such as ``"IXZ"`` represents
+    :math:`I \otimes X \otimes Z` acting on three qubits. The optional complex
+    ``phase`` represents the scalar multiplier, so the stored operator is
+    :math:`\mathrm{phase}\,P_0 \otimes \cdots \otimes P_{n-1}`. The dense
+    matrix can be materialized, but vector and matrix application use tensor
+    structure when possible.
+    """
 
     def __init__(
         self,
@@ -158,6 +176,7 @@ class PauliString(ContextBound):
         phase: complex = 1.0,
         ctx: Context | str | None = None,
     ) -> None:
+        """Create ``phase * P_0 otimes ... otimes P_{n-1}`` from a label."""
         super(PauliString, self).__init__(ctx)
         identifier = _validate_identifier(identifier)
         self.identifier = identifier
@@ -166,30 +185,35 @@ class PauliString(ContextBound):
 
     @property
     def n_qubits(self) -> int:
+        """Return ``n`` for an operator on ``(C^2)^{otimes n}``."""
         return len(self.codes)
 
     @property
     def label(self) -> str:
+        """Return the normalized string label, such as ``"IXZ"``."""
         return self.identifier
 
     def copy(self) -> PauliString:
+        """Return an independent copy with the same label, phase, and context."""
         return PauliString(self.identifier, phase=self.phase, ctx=self.ctx)
 
     def support(self) -> Tuple[int, ...]:
-        """
+        r"""
         Return the support of the Pauli operator.
 
         The support is the tuple of qubit indices on which the operator acts
         nontrivially, i.e. the sites where the local Pauli factor is not the
         identity.
 
-        If
+        .. math::
 
-            P = P_0 \\otimes P_1 \\otimes \\cdots \\otimes P_{n-1},
+            P = P_0 \otimes P_1 \otimes \cdots \otimes P_{n-1},
 
-        with each local factor P_k in {I, X, Y, Z}, then
+        with each local factor :math:`P_k \in \{I, X, Y, Z\}`, then
 
-            support(P) = { k : P_k != I }.
+        .. math::
+
+            \operatorname{support}(P) = \{k : P_k \ne I\}.
 
         Returns:
             tuple[int, ...]:
@@ -207,19 +231,21 @@ class PauliString(ContextBound):
         return tuple(i for i, c in enumerate(self.codes) if c != 0)
 
     def weight(self) -> int:
-        """
+        r"""
         Return the Pauli weight of the operator.
 
         The Pauli weight is the number of qubit sites on which the operator acts
         nontrivially, i.e. the number of local factors that are not the identity.
 
-        If
+        .. math::
 
-            P = P_0 \\otimes P_1 \\otimes \\cdots \\otimes P_{n-1},
+            P = P_0 \otimes P_1 \otimes \cdots \otimes P_{n-1},
 
-        with each local factor P_k in {I, X, Y, Z}, then
+        with each local factor :math:`P_k \in \{I, X, Y, Z\}`, then
 
-            weight(P) = |{ k : P_k != I }|.
+        .. math::
+
+            \operatorname{weight}(P) = |\{k : P_k \ne I\}|.
 
         Returns:
             int:
@@ -236,19 +262,23 @@ class PauliString(ContextBound):
         return len(self.support())
 
     def is_identity(self) -> bool:
+        """Return True if every local Pauli factor is the identity."""
         return all(c == 0 for c in self.codes)
 
     def adjoint(self) -> PauliString:
+        """Return the Hermitian adjoint of this symbolic Pauli string."""
         return PauliString(self.identifier, phase=self.phase.conjugate(), ctx=self.ctx)
 
     dagger = adjoint
 
     def trace(self):
+        """Return the trace of the represented dense Pauli operator."""
         if self.is_identity():
             return self.phase * (2 ** self.n_qubits)
         return self.phase * 0.0
 
     def commutes_with(self, other: PauliString) -> bool:
+        """Return True when this Pauli string commutes with ``other``."""
         self._check_compatible(other)
         anticomm_sites = 0
         for lc, rc in zip(self.codes, other.codes):
@@ -257,6 +287,7 @@ class PauliString(ContextBound):
         return (anticomm_sites % 2) == 0
 
     def multiply(self, other: PauliString) -> PauliString:
+        """Return the symbolic product of two compatible Pauli strings."""
         self._check_compatible(other)
         local_phase, codes = _combine_codes(self.codes, other.codes)
         return PauliString(
@@ -266,17 +297,20 @@ class PauliString(ContextBound):
         )
 
     def materialize(self) -> DenseArray:
+        """Return the full ``2^n x 2^n`` matrix for this Pauli string."""
         mats = [self.ctx.ops.asarray(pauli_matrices[ch]) for ch in self.identifier]
         out = reduce(self.ctx.ops.kron, mats)
         return self.phase * out if self.phase != 1 else out
 
     def matvec(self, x: DenseArray) -> DenseArray:
+        """Return ``P x`` for a state vector ``x`` of length ``2^n``."""
         x = self.ctx.ops.asarray(x)
         return _apply_codes_to_vector(self.codes, x, self.ctx.ops, phase=self.phase)
 
     apply = matvec
 
     def to_sum(self, coeff: complex = 1.0) -> PauliSum:
+        """Represent this Pauli string as a one-term ``PauliSum``."""
         return PauliSum([self], coeffs=[coeff], ctx=self.ctx)
 
     def _check_compatible(self, other: PauliString) -> None:
@@ -325,10 +359,12 @@ class PauliString(ContextBound):
         return NotImplemented
 
     def tree_flatten(self):
+        """Return children and auxiliary data for JAX PyTree flattening."""
         return (), (self.identifier, self.phase, self.ctx)
 
     @classmethod
     def tree_unflatten(cls, aux, children):
+        """Rebuild a Pauli string from JAX PyTree data."""
         identifier, phase, ctx = aux
         return cls(identifier, phase=phase, ctx=ctx)
 
@@ -374,7 +410,17 @@ class PauliString(ContextBound):
 @jax_pytree_class
 @dataclass(init=False)
 class PauliSum(ContextBound):
-    """Linear combination of Pauli strings with symbolic storage and fast matvec."""
+    r"""Symbolic linear combination of Pauli strings.
+
+    Represents an operator
+
+    .. math::
+
+        A = \sum_j c_j P_j
+
+    where every ``P_j`` acts on the same ``n``-qubit Hilbert space. Repeated
+    Pauli labels may be merged into one coefficient when ``simplify=True``.
+    """
 
     def __init__(
         self,
@@ -384,6 +430,7 @@ class PauliSum(ContextBound):
         ctx: Context | str | None = None,
         simplify: bool = True,
     ) -> None:
+        """Create ``sum_j coeffs[j] * terms[j]`` on a common qubit register."""
         raw_terms = list(terms)
         if not raw_terms:
             raise ValueError("terms must be non-empty")
@@ -428,27 +475,32 @@ class PauliSum(ContextBound):
 
     @property
     def n_qubits(self) -> int:
+        """Return ``n`` for an operator on ``(C^2)^{otimes n}``."""
         return self._n_qubits
 
     @property
     def n_terms(self) -> int:
+        """Return the number of symbolic Pauli terms in the sum."""
         return len(self.terms)
 
     def support(self) -> Tuple[int, ...]:
-        """
+        r"""
         Return the support of the Pauli sum.
 
         The support is the tuple of qubit indices on which at least one Pauli
         term acts nontrivially. Equivalently, it is the union of the supports
         of all Pauli-string terms in the sum.
 
-        If
+        .. math::
 
-            A = \\sum_j c_j P_j,
+            A = \sum_j c_j P_j,
 
         then
 
-            support(A) = \\bigcup_j support(P_j).
+        .. math::
+
+            \operatorname{support}(A) =
+            \bigcup_j \operatorname{support}(P_j).
 
         Returns:
             tuple[int, ...]:
@@ -464,9 +516,11 @@ class PauliSum(ContextBound):
         return tuple(sorted(sites))
 
     def simplify(self) -> PauliSum:
+        """Return a new sum with duplicate labels merged."""
         return PauliSum(self.terms, coeffs=self.coeffs, ctx=self.ctx, simplify=True)
 
     def materialize(self) -> DenseArray:
+        """Return the full dense matrix ``sum_j c_j P_j``."""
         out = None
         for coeff, term in zip(self.coeffs, self.terms):
             term_mat = coeff * term.materialize()
@@ -474,6 +528,7 @@ class PauliSum(ContextBound):
         return out
 
     def matvec(self, x: DenseArray) -> DenseArray:
+        """Return ``sum_j c_j P_j x`` without materializing the full matrix."""
         x = self.ctx.ops.asarray(x)
         acc = x * 0
         for coeff, term in zip(self.coeffs, self.terms):
@@ -483,6 +538,7 @@ class PauliSum(ContextBound):
     apply = matvec
 
     def add_term(self, term: str | PauliString, coeff: complex = 1.0) -> "PauliSum":
+        """Return a new sum with one additional term and coefficient."""
         if not isinstance(term, PauliString):
             term = PauliString(term, ctx=self.ctx)
         return PauliSum(
@@ -493,6 +549,7 @@ class PauliSum(ContextBound):
         )
 
     def trace(self):
+        """Return the trace of the represented dense operator."""
         total = 0.0 + 0.0j
         for coeff, term in zip(self.coeffs, self.terms):
             total += coeff * term.trace()
@@ -549,10 +606,12 @@ class PauliSum(ContextBound):
         return NotImplemented
 
     def tree_flatten(self):
+        """Return children and auxiliary data for JAX PyTree flattening."""
         return (self.coeffs,), (self.terms, self.ctx)
 
     @classmethod
     def tree_unflatten(cls, aux, children):
+        """Rebuild a Pauli sum from JAX PyTree data."""
         (coeffs,) = children
         terms, ctx = aux
         return cls(terms, coeffs=coeffs, ctx=ctx, simplify=False)
@@ -593,23 +652,27 @@ class PauliSum(ContextBound):
         ctx: Context | str | None = None,
         check_hermitian: bool = True,
     ) -> PauliSum:
-        """
+        r"""
         Decompose a Hermitian matrix into the Pauli-string basis.
 
         For a matrix A acting on n qubits, this method computes coefficients
-        c_alpha such that
+        :math:`c_\alpha` such that
 
-            A = sum_alpha c_alpha P_alpha,
+        .. math::
+
+            A = \sum_\alpha c_\alpha P_\alpha,
 
         where the sum runs over all n-qubit Pauli strings and
 
-            c_alpha = 2^{-n} Tr(P_alpha A).
+        .. math::
+
+            c_\alpha = 2^{-n} \operatorname{Tr}[P_\alpha A].
 
         Args:
             mat:
                 Dense matrix of shape (2**n, 2**n).
             tol:
-                Terms with |c_alpha| <= tol are discarded.
+                Terms with :math:`|c_\alpha| \le \mathtt{tol}` are discarded.
             ctx:
                 Optional context.
             check_hermitian:
@@ -672,13 +735,21 @@ class PauliSum(ContextBound):
         )
 
     def matmat(self, X: DenseArray) -> DenseArray:
-        """
+        r"""
         Left-multiply a matrix by this Pauli sum.
 
         For
-            A = sum_j c_j P_j,
+
+        .. math::
+
+            A = \sum_j c_j P_j,
+
         this returns
-            A X = sum_j c_j (P_j X),
+
+        .. math::
+
+            A X = \sum_j c_j (P_j X),
+
         without materializing A.
 
         Args:
