@@ -9,8 +9,8 @@ An SDP is an optimization problem where the unknown is a matrix-like variable:
 
 $$
 \begin{aligned}
-\min_{X \in \operatorname{dom}(\mathcal{A})}\quad
-    & \operatorname{Tr}[C X] \\
+\min_{X \in \mathrm{dom}(\mathcal{A})}\quad
+    & \mathrm{Tr}[C X] \\
 \text{s.t.}\quad
     & \mathcal{A}X = b, \\
     & X \succeq 0.
@@ -19,51 +19,51 @@ $$
 
 Here
 
-- $X \in \operatorname{dom}(\mathcal{A})$ is the primal variable.
+- $X \in \mathrm{dom}(\mathcal{A})$ is the primal variable.
 - $X \succeq 0$ means that $X$ is positive semidefinite, so all eigenvalues of
   $X$ are nonnegative.
-- $C \in \operatorname{dom}(\mathcal{A})$ is the cost matrix or cost element.
-- $\operatorname{Tr}[C X]$ is the trace objective. For dense matrices, think
+- $C \in \mathrm{dom}(\mathcal{A})$ is the cost matrix or cost element.
+- $\mathrm{Tr}[C X]$ is the trace objective. For dense matrices, think
   `trace(C @ X)`.
-- $\mathcal{A} : \operatorname{dom}(\mathcal{A})
-  \to \operatorname{cod}(\mathcal{A})$ is the linear constraint operator.
-- $b \in \operatorname{cod}(\mathcal{A})$ is the constraint right-hand side.
+- $\mathcal{A} : \mathrm{dom}(\mathcal{A})
+  \to \mathrm{cod}(\mathcal{A})$ is the linear constraint operator.
+- $b \in \mathrm{cod}(\mathcal{A})$ is the constraint right-hand side.
 - $\mathcal{A}X = b$ means that $X$ must satisfy a list or structured
   collection of linear equalities.
 
 The library names match this notation:
 
-- `dom` is $\operatorname{dom}(\mathcal{A})$, the space containing $C$ and $X$.
-- `cod` is $\operatorname{cod}(\mathcal{A})$, the space containing
+- `dom` is $\mathrm{dom}(\mathcal{A})$, the space containing $C$ and $X$.
+- `cod` is $\mathrm{cod}(\mathcal{A})$, the space containing
   $\mathcal{A}X$, $b$, and dual variables $y$.
 - `SDPProblem` stores
-  $C \in \operatorname{dom}(\mathcal{A})$,
-  $\mathcal{A} : \operatorname{dom}(\mathcal{A})
-  \to \operatorname{cod}(\mathcal{A})$, and
-  $b \in \operatorname{cod}(\mathcal{A})$.
+  $C \in \mathrm{dom}(\mathcal{A})$,
+  $\mathcal{A} : \mathrm{dom}(\mathcal{A})
+  \to \mathrm{cod}(\mathcal{A})$, and
+  $b \in \mathrm{cod}(\mathcal{A})$.
 - `SDPPrimal` wraps a candidate primal variable
-  $X \in \operatorname{dom}(\mathcal{A})$.
+  $X \in \mathrm{dom}(\mathcal{A})$.
 - `SDPDual` wraps a candidate dual variable
-  $y \in \operatorname{cod}(\mathcal{A})$.
+  $y \in \mathrm{cod}(\mathcal{A})$.
 
 ## How To Build a Problem
 
 1. Decide what shape and type the unknown variable $X$ has.
-   This determines $\operatorname{dom}(\mathcal{A})$. For a dense complex SDP,
+   This determines $\mathrm{dom}(\mathcal{A})$. For a dense complex SDP,
    this is usually a Hermitian matrix space.
 
 2. Decide what linear constraints are needed.
-   This determines $\operatorname{cod}(\mathcal{A})$ and the linear map
-   $\mathcal{A} : \operatorname{dom}(\mathcal{A})
-   \to \operatorname{cod}(\mathcal{A})$.
+   This determines $\mathrm{cod}(\mathcal{A})$ and the linear map
+   $\mathcal{A} : \mathrm{dom}(\mathcal{A})
+   \to \mathrm{cod}(\mathcal{A})$.
 
 3. Pick the right-hand side
-   $b \in \operatorname{cod}(\mathcal{A})$.
+   $b \in \mathrm{cod}(\mathcal{A})$.
    Feasible primal variables satisfy $\mathcal{A}X = b$.
 
 4. Pick the cost element
-   $C \in \operatorname{dom}(\mathcal{A})$.
-   The solver minimizes $\operatorname{Tr}[C X]$.
+   $C \in \mathrm{dom}(\mathcal{A})$.
+   The solver minimizes $\mathrm{Tr}[C X]$.
 
 5. Wrap the data as an SDP problem.
 
@@ -90,7 +90,7 @@ primal, dual = run_cvxpy_solver(problem)
 If `tau` is set, the dense problem also includes the affine constraint
 
 $$
-\operatorname{Tr}[X] = \tau.
+\mathrm{Tr}[X] = \tau.
 $$
 
 For density matrices, use `tau=1.0`.
@@ -100,16 +100,16 @@ For density matrices, use `tau=1.0`.
 The dual variable satisfies
 
 $$
-y \in \operatorname{cod}(\mathcal{A}).
+y \in \mathrm{cod}(\mathcal{A}).
 $$
 
 The adjoint operator
 
 $$
 \mathcal{A}^\dagger :
-\operatorname{cod}(\mathcal{A})
+\mathrm{cod}(\mathcal{A})
 \to
-\operatorname{dom}(\mathcal{A})
+\mathrm{dom}(\mathcal{A})
 $$
 
 moves dual variables back into the primal space. The expression
@@ -128,8 +128,8 @@ depending on strength $\varepsilon > 0$
 
 $$
 \begin{aligned}
-\min_{X \in \operatorname{dom}(\mathcal{A})}\quad
-    & \operatorname{Tr}[C X] +\varepsilon \operatorname{Tr}[\varphi(X)] \\
+\min_{X \in \mathrm{dom}(\mathcal{A})}\quad
+    & \mathrm{Tr}[C X] +\varepsilon \mathrm{Tr}[\varphi(X)] \\
 \text{s.t.}\quad
     & \mathcal{A}X = b, \\
     & X \succeq 0.
@@ -138,7 +138,7 @@ $$
 
 The respective unconstrained dual problem is
 
-$$\max_{y\in\operatorname{cod}(\mathcal{A})} D_\varepsilon(y)=\operatorname{Tr}[b y]-\varepsilon\operatorname{Tr}\left[\psi\left(\frac{\mathcal{A}^\dagger y-C}{\varepsilon}\right)\right]$$
+$$\max_{y\in\mathrm{cod}(\mathcal{A})} D_\varepsilon(y)=\mathrm{Tr}[b y]-\varepsilon\mathrm{Tr}\left[\psi\left(\frac{\mathcal{A}^\dagger y-C}{\varepsilon}\right)\right]$$
 
 where $\psi$ is the Legendre transform of $\varphi$.
 
@@ -155,5 +155,5 @@ Built-in regularizers:
 
 - `EntropyReg`: entropy-style spectral regularization for the primal SDP.
 - `EntropyRegLog`: entropy-style spectral regularization for trace-normalized
-  problems, such as problems with $\operatorname{Tr}[X] = 1$.
+  problems, such as problems with $\mathrm{Tr}[X] = 1$.
 - `QuadraticReg`: quadratic spectral regularization for the primal SDP.
