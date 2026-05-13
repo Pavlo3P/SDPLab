@@ -1,3 +1,17 @@
+r"""CVXPY implementation of dense SDP primal solves.
+
+This module solves dense instances of the SDP model
+
+.. math::
+
+    \min_{X \in \operatorname{dom}(\mathcal{A})}\quad\operatorname{Re}\operatorname{Tr}[C X]
+    \quad \text{s.t.} \quad
+        \mathcal{A}X = b,\quad
+        X \succeq 0,
+
+with an optional trace constraint :math:`\operatorname{Tr}[X] = \tau`.
+"""
+
 from __future__ import annotations
 
 from typing import Tuple
@@ -14,16 +28,38 @@ def solve_sdp_primal(
     verbose: bool = False,
     *args, **kwargs
 ) -> Tuple[SDPPrimal, SDPDual]:
-    """
-    Solve the dense SDP
+    r"""Solve a dense SDP primal problem.
 
-        minimize   ⟨C, X⟩
-        s.t.       ⟨A_k, X⟩ = b_k,  k=1..m
-                   X ⪰ 0
+    The solved problem is
 
-    where data may be real (symmetric) or complex (Hermitian).
+    .. math::
 
-    Returns (SDPPrimal, SDPDual).
+        \min_{X \in \operatorname{dom}(\mathcal{A})}\quad\operatorname{Re}\operatorname{Tr}[C X]
+        \quad \text{s.t.} \quad
+            \mathcal{A}X = b,\\
+            X \succeq 0.
+
+    In the common dense representation, :math:`\mathcal{A}` is stored through
+    matrices :math:`A_1, \ldots, A_m`, and the equality constraint means
+    :math:`\operatorname{Tr}[A_k X] = b_k` for :math:`k = 1, \ldots, m`.
+    Here :math:`C, X \in \operatorname{dom}(\mathcal{A})`, while
+    :math:`b \in \operatorname{cod}(\mathcal{A})`.
+
+    If ``sdp.tau`` is set, the additional affine constraint
+    :math:`\operatorname{Tr}[X] = \tau` is included. The returned dual variable
+    contains the CVXPY multipliers for :math:`\mathcal{A}X = b`.
+
+    Args:
+        sdp: Dense SDP data ``(C, A, b)`` plus optional trace value.
+        solver: CVXPY solver name, for example ``"MOSEK"``.
+        verbose: Whether CVXPY should print solver progress.
+        *args: Extra positional arguments passed to ``Problem.solve``.
+        **kwargs: Extra keyword arguments passed to ``Problem.solve``.
+
+    Returns:
+        ``(primal, dual)`` where ``primal.X`` is the optimized matrix and
+        ``dual.y`` stores equality-constraint multipliers in
+        :math:`\operatorname{cod}(\mathcal{A})`.
     """
 
     # 1) dense backend data

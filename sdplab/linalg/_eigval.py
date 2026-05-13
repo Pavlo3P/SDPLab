@@ -1,3 +1,5 @@
+"""Backend-agnostic iterative eigenvalue routines."""
+
 from __future__ import annotations
 
 from typing import Tuple, Any, Callable
@@ -14,6 +16,23 @@ def power_method(
     n_iter: int = 100,
     eps: float = 1e-12,
 ) -> Any:
+    """Approximate a dominant eigenvector using repeated matrix-vector products.
+
+    Given a linear operator ``T`` represented by ``mvp(v) = T v``, the method
+    iterates ``v <- T v / ||T v||``. For diagonalizable operators with a
+    unique largest-magnitude eigenvalue and a compatible initial vector, the
+    iterates approach the corresponding eigenvector.
+
+    Args:
+        vector_space: Space that owns vector validation and norm/scale operations.
+        mvp: Callable that applies the target linear operator to a vector.
+        init_v: Initial vector in ``vector_space``.
+        n_iter: Number of power iterations to run.
+        eps: Lower bound used when normalizing near-zero vectors.
+
+    Returns:
+        A normalized vector in ``vector_space`` after ``n_iter`` applications.
+    """
 
     ops = vector_space.ctx.ops
     vector_space.check_member(init_v)
@@ -37,14 +56,31 @@ def stochastic_lanczos(
     max_iter: int = 100,
     tol: float = 1e-6,
 ) -> Tuple[DenseArray, DenseArray]:
-    """
-    Backend-agnostic Lanczos for smallest eigenpair approximation.
+    r"""Approximate the smallest eigenpair of a Hermitian operator.
 
-    Fixes:
-      - safe init (no NaNs if initial_vector is zero)
-      - remove numpy import (use ops.arange)
-      - refine returned eigenvalue via Rayleigh quotient of reconstructed Ritz vector
-        (much more reliable than eigvals[0] of padded tridiagonal in practice)
+    The operator is supplied through ``mvp`` so the routine can run on any
+    backend supported by ``spacecore``. The implementation keeps fixed-size
+    arrays for JAX compatibility, safely handles zero initial vectors, and
+    refines the returned eigenvalue with the Rayleigh quotient of the
+    reconstructed Ritz vector.
+
+    Mathematically, Lanczos builds an orthonormal Krylov basis ``V`` for
+    ``span{v, T v, T^2 v, ...}`` and a tridiagonal projection
+    :math:`T_k = V^\dagger T V`. The returned vector is the Ritz vector
+    reconstructed in the original coordinates, and the returned scalar is the
+    Rayleigh quotient
+    :math:`(x^\dagger T x) / (x^\dagger x)`.
+
+    Args:
+        ctx: Backend context used for array creation and control flow.
+        mvp: Callable that applies the Hermitian operator to a vector.
+        initial_vector: Starting vector for the Krylov subspace.
+        max_iter: Maximum number of Lanczos steps.
+        tol: Breakdown tolerance for the off-diagonal Lanczos coefficient.
+
+    Returns:
+        A pair ``(eigenvalue, eigenvector)`` for the smallest approximated
+        eigenpair.
     """
     ops = ctx.ops
 
@@ -176,7 +212,7 @@ def stochastic_lanczos(
         ops.asarray(0.0),
     )
 
-    # Rayleigh refinement: λ = <x, A x> / <x, x>
+    # Rayleigh refinement: lambda = (x^dagger A x) / (x^dagger x)
     Ax = mvp(x)
     Ax = ctx.asarray(Ax)
     Ax = ctx.assert_dense(Ax)

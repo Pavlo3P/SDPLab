@@ -1,3 +1,5 @@
+r"""CVXPY solver for the QOT dual semidefinite program."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -14,20 +16,44 @@ def solve_qot_dual(
     verbose: bool = False,
     *args, **kwargs
 ) -> tuple[SDPPrimal, SDPDual]:
-    """
-    Solve the QOT dual SDP:
+    r"""Solve the QOT dual SDP.
 
-        maximize   sum_k trace(U_k @ ρ_k)
-        subject to K := sum_k  I⊗...⊗U_k⊗...⊗I   ⪯   C
-                   U_k Hermitian   (real case: symmetric)
+    For the QOT constraint operator :math:`\mathcal{A}`, the primal coupling
+    satisfies
+    :math:`\Gamma \in \operatorname{dom}(\mathcal{A}) = \operatorname{Herm}(d^N)`
+    and the marginal data satisfy
+    :math:`\gamma = (\gamma_0, \ldots, \gamma_{N-1})
+    \in \operatorname{cod}(\mathcal{A}) = \operatorname{Herm}(d)^N`.
+    The dual problem is
 
-    where ρ_k are the single-site partial traces and C is the cost matrix
-    of size D×D with D = d**N.
+    .. math::
+
+        \max_{U \in \operatorname{cod}(\mathcal{A})}\quad
+        \sum_k \operatorname{Tr}[U_k \gamma_k]
+        \quad \text{s.t.}\quad
+        \mathcal{A}^\dagger U \preceq C.
+
+    Here :math:`C \in \operatorname{dom}(\mathcal{A})` is the cost matrix and
+    :math:`U = (U_0, \ldots, U_{N-1})` is the block dual variable. The adjoint
+    constraint is
+
+    .. math::
+
+        \mathcal{A}^\dagger U
+        =
+        U_0 \oplus \cdots \oplus U_{N-1}
+        =
+        \sum_k I \otimes \cdots \otimes U_k \otimes \cdots \otimes I
+        \preceq C,
+
+    equivalently :math:`C - \mathcal{A}^\dagger U \succeq 0`.
 
     Returns:
-        (primal, dual) where
-          - primal is QOTPrimal (dense) — the dual multiplier of C ⪰ K
-          - dual   is QOTDual with blocks U_k ∈ ℂ^{d×d}
+        A pair ``(primal, dual)``. The primal value stores the coupling
+        :math:`\Gamma`, represented as the positive-semidefinite multiplier
+        for :math:`C - \mathcal{A}^\dagger U \succeq 0`. The dual value stores
+        the optimized blocks :math:`U_k` in
+        :math:`\operatorname{cod}(\mathcal{A})`.
     """
 
     if not (isinstance(qot.A, QOTConstraintOp) or isinstance(qot.cod, BlockMatrixSpace)):
@@ -53,6 +79,7 @@ def solve_qot_dual(
     # ----------- build K = sum_k I⊗...⊗U_k⊗...⊗I -----------
     eye = cp.Constant(np.eye(d, d, dtype=qot.ctx.dtype))
     def kron_chain(k: int) -> cp.Expression:
+        r"""Return the Kronecker embedding of the ``k``-th dual block."""
         expr = None
         for idx in range(N):
             term = U[idx] if idx == k else eye
@@ -68,10 +95,10 @@ def solve_qot_dual(
     if U[0].value is None:
         raise ValueError(f'{solver} solver did not return a solution.')
 
-    gamma_val = problem.A.dom.ctx.ops.asarray(constraints[0].dual_value, dtype=problem.A.dom.ctx.dtype)
-    if np.iscomplexobj(gamma_val):
-        gamma_val *= 2.
-    primal = qot.primal_from_array(gamma_val)
+    Gamma_val = problem.A.dom.ctx.ops.asarray(constraints[0].dual_value, dtype=problem.A.dom.ctx.dtype)
+    if np.iscomplexobj(Gamma_val):
+        Gamma_val *= 2.
+    primal = qot.primal_from_array(Gamma_val)
 
     u_vals = problem.A.cod.ctx.ops.stack(
         [problem.A.cod.ctx.ops.asarray(Uk.value, dtype=problem.A.cod.ctx.dtype) for Uk in U],
