@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Any
 
 from spacecore import DenseArray, HermitianSpace, jax_pytree_class, Context, LinOp
-from spacecore._contextual import ctx_manager
 
 from ._linalg import _compute_ptraces, kron_sum, make_perm
 from ._block_space import BlockMatrixSpace
@@ -29,7 +28,6 @@ class QOTConstraintOp(LinOp[HermitianSpace, BlockMatrixSpace]):
         rtol = float(rtol)
         enforce_herm = bool(enforce_herm)
 
-        ctx = ctx_manager.normalize_context(ctx)
         dom = HermitianSpace(d ** N, atol=atol, rtol=rtol, enforce_herm=enforce_herm, ctx=ctx)
         cod = BlockMatrixSpace(d=d, N=N, atol=atol, rtol=rtol, enforce_herm=enforce_herm, ctx=ctx)
         super(QOTConstraintOp, self).__init__(dom, cod, ctx)

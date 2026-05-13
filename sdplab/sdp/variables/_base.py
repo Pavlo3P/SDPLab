@@ -3,8 +3,7 @@ from __future__ import annotations
 from typing import Any, Tuple
 from abc import abstractmethod
 
-from spacecore import ArrayLike, Space, Context
-from spacecore._contextual import ContextBound, ctx_manager
+from spacecore import ArrayLike, Space, Context, ContextBound, resolve_context_priority
 
 
 class SDPVar(ContextBound):
@@ -14,7 +13,7 @@ class SDPVar(ContextBound):
         space: Space,
         ctx: Context | str | None = None,
     ):
-        ctx = ctx_manager.resolve_context_priority(ctx, space)
+        ctx = resolve_context_priority(ctx, space)
         super(SDPVar, self).__init__(ctx)
         self.space = space.convert(ctx)
 

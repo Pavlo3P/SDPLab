@@ -4,10 +4,10 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 from spacecore import (
-    ArrayLike, DenseArray, BackendOps, Context, Space
+    ArrayLike, DenseArray, BackendOps, Context, Space,
+    ContextBound, resolve_context_priority
 )
 from spacecore.linop import LinOp
-from spacecore._contextual import ContextBound, ctx_manager
 
 from ...sdp.variables import SDPPrimal, SDPDual
 
@@ -20,7 +20,7 @@ class SDPProblem(ContextBound):
                  b: ArrayLike,
                  ctx: Context | str | None = None,
                  ):
-        ctx = ctx_manager.resolve_context_priority(ctx, A)
+        ctx = resolve_context_priority(ctx, A)
         super(SDPProblem, self).__init__(ctx)
 
         self.A = A.convert(ctx)

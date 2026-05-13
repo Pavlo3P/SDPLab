@@ -1,14 +1,7 @@
-from functools import reduce
 from typing import Tuple, Sequence
 
 from spacecore import DenseArray, Context
-
-
-def kron_all(ctx: Context, factors: list[DenseArray]) -> DenseArray:
-    """Left-folded Kronecker product of a Python list of matrices."""
-    ops = ctx.ops
-
-    return reduce(lambda A, B: ops.kron(A, B), factors)
+from sdplab.linalg import kron_all
 
 
 def kron_sum(ctx: Context, blocks: DenseArray) -> DenseArray:

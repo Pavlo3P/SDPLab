@@ -1,8 +1,7 @@
 from abc import abstractmethod
 from dataclasses import dataclass
 
-from spacecore import DenseArray, Context, jax_pytree_class
-from spacecore._contextual import ContextBound
+from spacecore import DenseArray, Context, jax_pytree_class, ContextBound
 
 from ...sdp import SDPProblem, SDPPrimal, SDPDual
 

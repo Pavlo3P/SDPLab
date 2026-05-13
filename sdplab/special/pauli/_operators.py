@@ -7,8 +7,8 @@ from typing import Iterable, Sequence, Tuple, Any
 from itertools import product
 import math
 
-from spacecore import Context, DenseArray, jax_pytree_class, BackendOps
-from spacecore._contextual import ContextBound, ctx_manager
+from spacecore import Context, DenseArray, jax_pytree_class, BackendOps, ContextBound, resolve_context_priority
+from spacecore._contextual import ctx_manager
 
 from ._pauli import pauli_matrices, _PAULI_TO_CODE, _CODE_TO_PAULI, _MUL_TABLE
 
@@ -158,7 +158,6 @@ class PauliString(ContextBound):
         phase: complex = 1.0,
         ctx: Context | str | None = None,
     ) -> None:
-        ctx = ctx_manager.normalize_context(ctx)
         super(PauliString, self).__init__(ctx)
         identifier = _validate_identifier(identifier)
         self.identifier = identifier
@@ -393,7 +392,7 @@ class PauliSum(ContextBound):
             term if isinstance(term, PauliString) else PauliString(term, ctx=ctx)
             for term in raw_terms
         ]
-        resolved_ctx = ctx_manager.resolve_context_priority(ctx, *term_objs)
+        resolved_ctx = resolve_context_priority(ctx, *term_objs)
         super(PauliSum, self).__init__(resolved_ctx)
 
         n_qubits = term_objs[0].n_qubits
