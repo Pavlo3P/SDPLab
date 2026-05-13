@@ -1,3 +1,5 @@
+"""Solver entry points and convergence records."""
+
 from ._info import ConvergenceInfo
 from ._optax import run_optax_solver
 from .cvxpy import run_cvxpy_solver

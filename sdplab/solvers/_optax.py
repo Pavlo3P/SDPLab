@@ -1,3 +1,25 @@
+r"""Optax-based first-order solver for regularized SDP duals.
+
+This solver optimizes the smooth dual objective of ``SDPRegularized``:
+
+.. math::
+
+    \max_{y \in \operatorname{cod}(\mathcal{A})}\quad D_\varepsilon(y),
+    \qquad
+    D_\varepsilon(y) =
+    \operatorname{Tr}[b\ y]
+    - \varepsilon \operatorname{Tr}\left[\psi\left(\frac{\mathcal{A}^\dagger y - C}{\varepsilon}\right)\right].
+
+where :math:`\psi` is the Legendre transform of :math:`\varphi`.
+
+Optax minimizes functions, so internally the code minimizes the negative dual
+objective. The variable being updated is the dual variable
+:math:`y \in \operatorname{cod}(\mathcal{A})`. The returned
+``ConvergenceInfo`` contains the final dual iterate and diagnostic histories.
+A primal matrix can be recovered afterward with
+``SDPRegularized.primal_from_dual``.
+"""
+
 from functools import partial
 from dataclasses import dataclass, field
 from time import time as Time
@@ -10,22 +32,35 @@ from ._info import ConvergenceInfo
 
 @dataclass
 class DualReIm:
+    r"""Real-imaginary representation of complex dual variables for JAX.
+
+    JAX optimizers work most naturally with real-valued PyTree leaves. When
+    the mathematical dual variable :math:`y \in \operatorname{cod}(\mathcal{A})`
+    is complex, this helper stores ``real(y)`` and ``imag(y)`` as separate
+    leaves and recombines them when the objective needs the actual complex
+    array.
+    """
+
     re: DenseArray = field(init=False)
     im: DenseArray = field(init=False)
 
     def __init__(self, array: DenseArray):
+        """Split a complex array into real and imaginary PyTree leaves."""
         self.re = array.real
         self.im = array.imag
 
     def tree_flatten(self):
+        """Return real and imaginary leaves for JAX PyTree flattening."""
         children = (self.re, self.im)
         return children, None
 
     def get_array(self) -> DenseArray:
+        """Recombine the stored real and imaginary parts."""
         return self.re + 1j * self.im
 
     @classmethod
     def tree_unflatten(cls, aux, children):
+        """Rebuild a split dual array from JAX PyTree leaves."""
         obj = cls.__new__(cls)
         obj.re = children[0]
         obj.im = children[1]
@@ -41,6 +76,37 @@ def run_optax_solver(
         verbose: bool = False,
         log_every: int = 50,
 ):
+    r"""Run a JAX/Optax optimizer on the regularized SDP dual objective.
+
+    The optimized mathematical objective is
+
+    .. math::
+
+        \max_{y \in \operatorname{cod}(\mathcal{A})}\quad D_\varepsilon(y),
+        \qquad
+        D_\varepsilon(y) =
+        \operatorname{Tr}[b\ y]
+        - \varepsilon \operatorname{Tr}\left[\psi\left(\frac{\mathcal{A}^\dagger y - C}{\varepsilon}\right)\right],
+
+    where :math:`\psi` is the Legendre transform of :math:`\varphi`.
+
+    The implementation minimizes ``-D_eps(y)`` with gradients computed by JAX.
+    This is intended for regularized problems where the dual objective is
+    smooth enough for first-order optimization.
+
+    Args:
+        sdp: Regularized SDP whose dual objective is maximized.
+        init_dual: Initial dual variable in :math:`\operatorname{cod}(\mathcal{A})`.
+        opt: Optax gradient transformation used for updates.
+        max_iter: Maximum number of optimizer iterations.
+        tol: Stop once the gradient norm drops below this tolerance.
+        verbose: If True, print progress from the compiled loop.
+        log_every: Progress-print interval when ``verbose`` is enabled.
+
+    Returns:
+        ``ConvergenceInfo`` containing the final dual variable, objective
+        history, gradient norm history, tolerance flag, and elapsed time.
+    """
     import jax
     import jax.numpy as jnp
     from jax import tree_util
@@ -65,15 +131,17 @@ def run_optax_solver(
             verbose: bool = False,
             log_every: int = 50,
     ):
-        """
-        Runs optax solver on the Regularized QOT dual.
-        Adds counters for iteration, logs the objective value each step,
-        and prints progress every `log_every` iters if `verbose=True`.
+        r"""Run the compiled Optax loop on the regularized SDP dual.
 
-        Returns a dict with:
-          - 'params': final dual variables
-          - 'state': final Optax state (contains 'count' & 'grad')
-          - 'loss_history': array of objective values per iteration
+        The loop minimizes ``-D_eps(y)`` over
+        :math:`y \in \operatorname{cod}(\mathcal{A})`, logs the dual objective
+        value at each step, and optionally prints progress every ``log_every``
+        iterations.
+
+        Returns:
+            A dictionary containing the final dual parameters, Optax state,
+            dual-objective history, gradient-norm history, iteration count,
+            and tolerance flag.
         """
 
         # 1) Define objective
