@@ -69,17 +69,29 @@ def generate_random_qot(
     """
 
     D = d ** N
-    np.random.seed(seed)
-    cost_re_im = np.random.normal(loc=0, scale=1, size=(2, D, D))
+
+    proportions = np.asarray(proportions, dtype=float)
+
+    if len(proportions) > D:
+        raise ValueError("len(proportions) cannot exceed D = d ** N")
+
+    if np.any(proportions < 0):
+        raise ValueError("proportions must be nonnegative")
+
+    if not np.isclose(np.sum(proportions), 1.0):
+        raise ValueError("proportions must sum to 1")
+
+    rng = np.random.default_rng(seed)
+    cost_re_im = rng.normal(size=(2, D, D))
     cost_matrix = cost_re_im[0, :, :] + 1j * cost_re_im[1, :, :]
-    cost_matrix = (cost_matrix + cost_matrix.T.conj()) / 2
+    cost_matrix = (cost_matrix + cost_matrix.T.conj()) * .5
 
     # Compute eigenvalues and eigenvectors
     evals, evecs = np.linalg.eigh(cost_matrix)
 
     # Compute ground state energy and density matrix
     np_ctx = Context(NumpyOps(), dtype=np.complex128, enable_checks=False)
-    gamma = sum(p * np.outer(v, v.conj()) for p, v in zip(proportions, evecs.T.conj()))
+    gamma = sum(p * np.outer(v, v.conj()) for p, v in zip(proportions, evecs.T))
     gamma = (gamma + gamma.T.conj()) * .5
     qot_op = QOTConstraintOp(d=d, N=N, atol=atol, rtol=rtol, enforce_herm=enforce_herm, ctx=np_ctx)
     marginals = qot_op.apply(gamma)
