@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sdplab"
+version = "0.1.0"
+description = "Tools for constructing and solving regularized semidefinite programming problems."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "scipy",
+    "cvxpy",
+    "jax[cpu]",
+    "optax",
+    "spacecore",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+]
+
+[tool.setuptools.packages.find]
+include = ["sdplab*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
