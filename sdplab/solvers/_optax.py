@@ -148,7 +148,7 @@ def run_optax_solver(
         def fun(d: DualReIm) -> jnp.ndarray:
             arr = d.get_array()
             dual = sdp.sdp.dual_from_array(arr)
-            return -sdp.dual_objective_reg(dual)
+            return -sdp.sdp.ops.real(sdp.dual_objective_reg(dual))
 
         # 3) Setup optimized
         value_and_grad_fun = jax.value_and_grad(fun)
