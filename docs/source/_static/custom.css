@@ -1,0 +1,22 @@
+:root {
+  --pst-font-family-base: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --pst-font-family-monospace: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+.bd-main .bd-content .bd-article-container {
+  max-width: 920px;
+}
+
+.bd-page-width {
+  max-width: 1240px;
+}
+
+div.autosummary table {
+  width: 100%;
+}
+
+dl.py.class,
+dl.py.function,
+dl.py.method {
+  margin-top: 1.25rem;
+}
