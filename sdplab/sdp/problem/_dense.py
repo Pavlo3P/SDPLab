@@ -125,6 +125,14 @@ class SDPDenseProblem(SDPProblem):
         lhs = self.A.rapply(dual.y) - self.C
         return self.A.dom.eigh(lhs)
 
+    def primal_from_eigendecomp(self, eigvals: DenseArray, eigvecs: DenseArray) -> SDPPrimal:
+        r"""Build a dense primal matrix from an eigendecomposition.
+
+        This is the recovery step used by regularized dual solvers after they
+        convert dual-slack eigenvalues into primal eigenvalues.
+        """
+        return self.primal_from_array(self.dom.eig_to_dense(eigvals, eigvecs))
+
     def _convert(self, new_ctx: Context) -> SDPDenseProblem:
         """Return an equivalent dense problem in ``new_ctx``."""
         new_C = new_ctx.asarray(self.C)
