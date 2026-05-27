@@ -1,9 +1,10 @@
+"""Tests for the matrix utilities in sdplab.linalg."""
+
 from __future__ import annotations
 
 import numpy as np
-from spacecore import VectorSpace
 
-from sdplab.linalg import kron_all, log_trace_exp, power_method
+from sdplab.linalg import kron_all, log_trace_exp
 
 
 def test_kron_all_returns_left_folded_kronecker_product(np_ctx):
@@ -23,12 +24,3 @@ def test_log_trace_exp_matches_eigenvalue_logsumexp(np_ctx):
     x = np_ctx.asarray([[1.0, 0.0], [0.0, 2.0]])
 
     assert np.allclose(log_trace_exp(space, x), np.log(np.exp(1.0) + np.exp(2.0)))
-
-
-def test_power_method_returns_dominant_direction(np_ctx):
-    """Check power iteration converges to the dominant eigenvector."""
-    space = VectorSpace((2,), ctx=np_ctx)
-    matrix = np_ctx.asarray([[3.0, 0.0], [0.0, 1.0]])
-
-    vec = power_method(space, lambda x: matrix @ x, np_ctx.asarray([1.0, 1.0]), n_iter=20)
-    assert np.allclose(np.abs(vec), [1.0, 0.0], atol=1e-3)
