@@ -8,6 +8,9 @@ supported problem is interpreted through the SDP data
 and :math:`b \in \operatorname{cod}(\mathcal{A})`.
 """
 
+import cvxpy as cp
+from typing import Tuple
+
 from ...sdp import SDPDenseProblem, SDPProblem, SDPPrimal, SDPDual
 
 from ._sdp import solve_sdp_primal
@@ -17,8 +20,9 @@ def run_cvxpy_solver(
     problem: SDPProblem,
     solver: str = 'MOSEK',
     verbose: bool = False,
+    return_problem: bool = False,
     *args, **kwargs
-) -> tuple[SDPPrimal, SDPDual]:
+) -> Tuple[SDPPrimal, SDPDual] | Tuple[SDPPrimal, SDPDual, cp.Problem]:
     r"""Solve a supported SDP problem through CVXPY.
 
     Mathematically, this sends
@@ -45,6 +49,6 @@ def run_cvxpy_solver(
         problem context.
     """
     if isinstance(problem, SDPDenseProblem):
-        return solve_sdp_primal(problem, solver, verbose, *args, **kwargs)
+        return solve_sdp_primal(problem, solver, verbose, return_problem, *args, **kwargs)
     else:
         raise ValueError('Unknown problem type: {}'.format(type(problem)))

@@ -101,7 +101,7 @@ class AbstractRegularizer(ContextBound):
     :math:`\varphi`, for example entropy or a quadratic penalty.
     """
 
-    def __init__(self, val: DenseArray, ctx: Context | str | None = None):
+    def __init__(self, val: DenseArray | float, ctx: Context | str | None = None):
         r"""Create a regularizer with strength :math:`\varepsilon = \texttt{val}`.
 
         Larger :math:`\varepsilon` makes the spectral penalty more influential.
@@ -197,7 +197,7 @@ class AbstractRegularizer(ContextBound):
         """
         # R_eps^*(y) = eps * Tr[psi((A^dagger y - C) / eps)]
         constr_eigvals, _ = sdp.dual_constr_eig_decomp(dual, k)
-        constr_eigvals = constr_eigvals / self.val
+        constr_eigvals = self.ops.real(constr_eigvals / self.val)
         return self.val * self._phi_star(constr_eigvals)
 
     def tree_flatten(self):

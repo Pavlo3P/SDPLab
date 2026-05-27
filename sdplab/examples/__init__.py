@@ -1,0 +1,1 @@
+from ._max_cut import generate_max_cut

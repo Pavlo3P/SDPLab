@@ -26,8 +26,9 @@ def solve_sdp_primal(
     sdp: SDPDenseProblem,
     solver: str = 'MOSEK',
     verbose: bool = False,
+    return_problem: bool = False,
     *args, **kwargs
-) -> Tuple[SDPPrimal, SDPDual]:
+) -> Tuple[SDPPrimal, SDPDual] | Tuple[SDPPrimal, SDPDual, cp.Problem]:
     r"""Solve a dense SDP primal problem.
 
     The solved problem is
@@ -108,4 +109,8 @@ def solve_sdp_primal(
 
     primal = sdp.primal_from_array(X_val)
     dual   = sdp.dual_from_array(y_val)
+
+    if return_problem:
+        return primal, dual, prob
+
     return primal, dual

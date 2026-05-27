@@ -10,7 +10,7 @@ from itertools import product
 import math
 
 from spacecore import Context, DenseArray, jax_pytree_class, BackendOps, ContextBound, resolve_context_priority
-from spacecore._contextual import ctx_manager
+from spacecore._contextual import normalize_context
 
 from ._pauli import pauli_matrices, _PAULI_TO_CODE, _CODE_TO_PAULI, _MUL_TABLE
 
@@ -688,7 +688,7 @@ class PauliSum(ContextBound):
                 If the input is not square, its dimension is not a power of 2,
                 or it is not Hermitian when check_hermitian=True.
         """
-        obj_ctx = ctx_manager.normalize_context(ctx)
+        obj_ctx = normalize_context(ctx)
         ops = obj_ctx.ops
 
         A = ops.asarray(mat)
