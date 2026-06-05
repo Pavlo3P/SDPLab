@@ -16,7 +16,7 @@ Let
 
    X = V \operatorname{diag}(\lambda) V^\dagger.
 
-A spectral regularizer is written in trace form as
+A separable spectral regularizer is written in trace form as
 
 .. math::
 
@@ -38,10 +38,11 @@ The regularized primal objective is
    =
    \operatorname{Tr}[C X] + R(X).
 
-Dual-side view
+Dual-Side View
 --------------
 
-Regularized solvers operate with the dual expression
+For separable regularizers, regularized solvers operate with the dual
+expression
 
 .. math::
 
@@ -75,29 +76,42 @@ Entropy regularization uses
 
 .. math::
 
-   \varphi(t) = t(\log t - 1),
+   \varphi(t) =
+   \begin{cases}
+   t(\log t - 1), & t > 0,\\
+   0, & t = 0,\\
+   +\infty, & t < 0,
+   \end{cases}
    \qquad
    \psi(s) = \exp(s).
 
-The ``EntropyRegLog`` variant adds a logarithm to the dual regularization
-term:
+The ``EntropyRegLog`` variant is coupled across eigenvalues. It represents
 
 .. math::
 
-   \operatorname{Tr}[\psi(S)]
+   F^*(S)
    =
-   \sum_i \exp(s_i)
-   \quad\leadsto\quad
-   \log\left(\sum_i \exp(s_i)\right).
+   \varepsilon \log\operatorname{Tr}\exp(S / \varepsilon)
+   =
+   \varepsilon \log\left(\sum_i \exp(s_i / \varepsilon)\right).
 
 This is the entropy regularization variant for trace-normalized problems with
-:math:`\tau = 1`, such as density-matrix SDPs.
+:math:`\tau = 1`, such as density-matrix SDPs. Its gradient has normalized
+eigenvalues
+
+.. math::
+
+   \frac{\exp(s_i / \varepsilon)}
+        {\sum_j \exp(s_j / \varepsilon)},
+
+so the gradient matrix has trace one. Because the conjugate is coupled,
+``EntropyRegLog.phi_star`` is intentionally not an elementwise operation.
 
 Quadratic regularization uses
 
 .. math::
 
-   \varphi(t) = \frac{t^2}{2},
+   \varphi(t) = \frac{t^2}{2} + \iota_{[0,\infty)}(t),
    \qquad
    \psi(s) = \frac{\max(s, 0)^2}{2}.
 

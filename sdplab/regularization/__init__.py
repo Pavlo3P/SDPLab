@@ -1,19 +1,23 @@
-r"""Built-in scalar functions used as spectral SDP regularizers.
+r"""Built-in spectral SDP regularizers.
 
-Each regularizer defines a convex scalar :math:`\varphi`, its Legendre
-transform :math:`\psi`, and the derivative :math:`\psi'` used for
-dual-to-primal eigenvalue recovery. In code, ``phi`` implements
-:math:`\varphi`, ``phi_star`` implements :math:`\psi`, and
-``phi_star_prime`` implements :math:`\psi'`.
+``EntropyReg`` and ``QuadraticReg`` are separable spectral regularizers:
+``phi`` implements the scalar :math:`\varphi`, ``phi_star`` implements the
+scalar conjugate :math:`\psi`, and ``phi_star_prime`` implements
+:math:`\psi'`.
+
+``EntropyRegLog`` is coupled across eigenvalues. It represents
+:math:`\varepsilon\log\operatorname{Tr}\exp(X/\varepsilon)` and returns
+normalized exponential-weight gradients with trace one.
 """
 
-from ._base import Regularizer
+from ._base import Regularizer, SDPRegularized
 from .entropy import EntropyReg, EntropyRegLog
 from .quadratic import QuadraticReg
 
 __all__ = [
     'Regularizer',
-    'EntropyRegLog',
+    'SDPRegularized',
     'EntropyReg',
+    'EntropyRegLog',
     'QuadraticReg',
 ]

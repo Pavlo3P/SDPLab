@@ -8,7 +8,8 @@ eigenvalues:
 
    X = V \operatorname{diag}(\lambda) V^\dagger.
 
-A scalar convex function :math:`\varphi` is lifted to the matrix penalty
+For separable regularizers, a scalar convex function :math:`\varphi` is lifted
+to the matrix penalty
 
 .. math::
 
@@ -30,7 +31,7 @@ The Legendre transform of :math:`\varphi` is denoted by :math:`\psi`:
    =
    \sup_t \{s t - \varphi(t)\}.
 
-The smooth regularized dual objective is
+The smooth separable regularized dual objective is
 
 .. math::
 
@@ -42,6 +43,26 @@ where :math:`\psi` is the Legendre transform of :math:`\varphi`. The map
 ``primal_from_dual`` uses the first-order relation
 :math:`\lambda_i(X) = \psi'(s_i / \varepsilon)` in the eigenbasis of
 :math:`A^\dagger y - C`, :math:`s_i`.
+
+The log-trace-exponential entropy variant is not separable on the dual side.
+It uses the coupled function
+
+.. math::
+
+   F^*(S)
+   =
+   \varepsilon \log\operatorname{Tr}\exp(S / \varepsilon)
+   =
+   \varepsilon \log\left(\sum_i \exp(s_i / \varepsilon)\right).
+
+Its gradient has eigenvalues
+
+.. math::
+
+   \frac{\exp(s_i / \varepsilon)}
+        {\sum_j \exp(s_j / \varepsilon)},
+
+so the recovered matrix always has trace one.
 
 Why spectral regularizers
 -------------------------
@@ -64,9 +85,12 @@ dual methods recover primal eigenvalue weights by applying
    \psi'\left(\frac{s_i}{\varepsilon}\right).
 
 The recovered eigenvectors are the eigenvectors of
-:math:`\mathcal{A}^\dagger y - C`. In the code, ``phi_star`` implements
-:math:`\psi`, ``phi_star_prime`` implements :math:`\psi'`, and
-``log_phi_star_prime`` implements :math:`\log(\psi')`.
+:math:`\mathcal{A}^\dagger y - C`. For separable regularizers, ``phi_star``
+implements :math:`\psi`, ``phi_star_prime`` implements :math:`\psi'`, and
+``log_phi_star_prime`` implements :math:`\log(\psi')`. For ``EntropyRegLog``,
+``phi_star`` is intentionally unavailable because the conjugate is coupled;
+its derivative methods return normalized exponential weights for the full
+spectrum.
 
 Built-in policies
 -----------------
@@ -74,7 +98,7 @@ Built-in policies
 Entropy regularization maps slack eigenvalues through an exponential rule.
 Quadratic regularization maps them through a nonnegative clipping rule.
 Both are implemented by subclasses of
-:class:`sdplab.regularization.AbstractRegularizer`.
+:class:`sdplab.regularization.Regularizer`.
 
 The entropy-log variant changes the dual regularization from
 :math:`\operatorname{Tr}[\psi(S)]` to
