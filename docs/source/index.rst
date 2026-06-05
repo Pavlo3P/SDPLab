@@ -11,6 +11,7 @@ The documentation has four layers:
 * :doc:`tutorials/index` explains the main ideas with worked examples.
 * :doc:`design/index` describes the mathematical and API policies behind the
   library.
+* :doc:`special/index` covers specialized workflows such as quantum estimators.
 * :doc:`api/index` provides explicit object-level API reference pages.
 * :doc:`release_notes` records user-visible changes.
 
@@ -59,5 +60,6 @@ Quick example
 
    tutorials/index
    design/index
+   special/index
    api/index
    release_notes

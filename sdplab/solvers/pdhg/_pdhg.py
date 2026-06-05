@@ -1,22 +1,20 @@
 r"""Backend-neutral PDHG driver for dense semidefinite programs.
 
 The public function validates library-level inputs and wraps final arrays back
-into SDP variables.  The optimization loop itself works only with backend
-arrays and uses ``BackendOps`` control-flow primitives, which keeps the same
-loop usable by eager and JIT-capable backends.
+into SDP variables.  Each iteration works only with backend arrays; the shared
+``run_solver`` loop owns convergence, history, timing, and logging.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from time import time as Time
 from typing import TypeAlias
 
 from spacecore import Context, DenseArray
 
 from ...regularization import QuadraticReg, SDPRegularized
 from ...sdp import SDPDenseProblem, SDPDual, SDPPrimal
-from .._info import ConvergenceInfo
+from .._runner import OptimizeResult, run_solver
 from ._steps import (
     pdhg_dual_update,
     pdhg_primal_update,
@@ -34,19 +32,6 @@ class _PDHGProblemData:
     sq_reg: DenseArray
     sq_reg_float: float
     quadratic_problem: SDPRegularized | None
-
-
-@dataclass(frozen=True)
-class _PDHGLoopResult:
-    """Raw fixed-size output returned by the backend loop."""
-
-    primal: DenseArray
-    dual: DenseArray
-    n_iters: DenseArray
-    residual: DenseArray
-    primal_obj: DenseArray
-    dual_obj: DenseArray
-    residuals: DenseArray
 
 
 def _base_sdp(problem: SDPOrQuadraticReg) -> SDPDenseProblem:
@@ -124,7 +109,7 @@ def _quadratic_value(
     primal_x: DenseArray,
 ) -> DenseArray:
     """Evaluate ``QuadraticReg`` through SDP-domain spectral calculus."""
-    eigvals, _ = problem.sdp.dom.eigh(primal_x)
+    eigvals, _ = problem.sdp.dom.spectral_decompose(primal_x)
     return problem.reg.val * problem.reg._phi(eigvals)
 
 
@@ -153,7 +138,7 @@ def _dual_objective(
     reg = data.quadratic_problem.reg
     y = -dual_pdhg_y
     slack = sdp.A.rapply(y) - sdp.C
-    slack_eigvals, _ = sdp.dom.eigh(slack)
+    slack_eigvals, _ = sdp.dom.spectral_decompose(slack)
     slack_eigvals = reg.ops.real(slack_eigvals / reg.val)
     obj = sdp.ops.real(sdp.cod.inner(sdp.b, y))
     return obj - reg.val * reg._phi_star(slack_eigvals)
@@ -224,122 +209,6 @@ def pdhg_iteration(
     return primal_new, dual_new, primal_bar_new
 
 
-def _run_pdhg_loop(
-    data: _PDHGProblemData,
-    init_primal: DenseArray,
-    init_dual: DenseArray,
-    tau: float,
-    sigma: float,
-    theta: float,
-    max_iter: int,
-    tol: float,
-) -> tuple[DenseArray, DenseArray, DenseArray, DenseArray, DenseArray, DenseArray, DenseArray]:
-    r"""Run the array-only backend loop.
-
-    Histories are allocated at ``max_iter`` length and trimmed by the wrapper.
-    The stopping condition and conditional dual-objective logging use
-    ``BackendOps`` primitives instead of Python control flow.
-    """
-    sdp = data.sdp
-    ops = sdp.ops
-    has_dual_objective = data.quadratic_problem is not None
-
-    carry0 = (
-        init_primal,
-        init_dual,
-        init_primal,
-        ops.zeros((max_iter,)),
-        ops.zeros((max_iter,)),
-        ops.zeros((max_iter,)),
-        ops.asarray(0),
-        ops.asarray(ops.inf),
-    )
-
-    def cond_fun(carry):
-        *_, it, residual = carry
-        return (it < max_iter) & (residual >= tol)
-
-    def body_fun(carry):
-        (
-            primal,
-            dual,
-            primal_bar,
-            primal_obj_log,
-            dual_obj_log,
-            residual_log,
-            it,
-            residual_prev,
-        ) = carry
-
-        primal_prev = primal
-        dual_prev = dual
-        primal, dual, primal_bar = pdhg_iteration(
-            problem=sdp,
-            primal_prev=primal_prev,
-            dual_prev=dual_prev,
-            primal_bar=primal_bar,
-            tau=tau,
-            sigma=sigma,
-            theta=theta,
-            sq_reg=data.sq_reg,
-        )
-
-        it_next = it + 1
-        check_residual = (it_next % 64 == 0) | (it_next == max_iter)
-
-        primal_obj = _primal_objective(data, primal)
-        residual = ops.cond(
-            check_residual,
-            lambda args: _pdhg_residual_array(
-                sdp=sdp,
-                primal_new=args[0],
-                primal_prev=args[1],
-                dual_new=args[2],
-                dual_prev=args[3],
-            ),
-            lambda args: args[4],
-            (primal, primal_prev, dual, dual_prev, residual_prev),
-        )
-        dual_obj = (
-            _dual_objective(data, dual)
-            if has_dual_objective
-            else ops.asarray(0.0)
-        )
-
-        primal_obj_log = ops.index_set(primal_obj_log, it, primal_obj)
-        residual_log = ops.index_set(residual_log, it, residual)
-        dual_obj_log = ops.cond(
-            has_dual_objective,
-            lambda log: ops.index_set(log, it, dual_obj),
-            lambda log: log,
-            dual_obj_log,
-        )
-
-        return (
-            primal,
-            dual,
-            primal_bar,
-            primal_obj_log,
-            dual_obj_log,
-            residual_log,
-            it_next,
-            residual,
-        )
-
-    (
-        primal,
-        dual,
-        _,
-        primal_obj,
-        dual_obj,
-        residuals,
-        n_iters,
-        residual,
-    ) = ops.while_loop(cond_fun, body_fun, carry0)
-
-    return primal, dual, n_iters, residual, primal_obj, dual_obj, residuals
-
-
 def _validate_pdhg_inputs(
     problem: SDPOrQuadraticReg,
     init_primal: SDPPrimal | None,
@@ -376,8 +245,27 @@ def _validate_pdhg_inputs(
         raise ValueError("log_every must be positive.")
 
 
-def _loop_data_for_execution(data: _PDHGProblemData, jit: bool | None) -> _PDHGProblemData:
-    """Return loop data, disabling membership checks only for JIT tracing."""
+def _init_arrays(
+    data: _PDHGProblemData,
+    init_primal: SDPPrimal | None,
+    init_dual: SDPDual | None,
+) -> tuple[DenseArray, DenseArray]:
+    """Return raw initial primal and dual arrays in the problem context."""
+    init_primal_x = (
+        data.sdp.dom.zeros()
+        if init_primal is None
+        else data.sdp.ctx.asarray(init_primal.X)
+    )
+    init_dual_y = (
+        data.sdp.cod.zeros()
+        if init_dual is None
+        else data.sdp.ctx.asarray(init_dual.y)
+    )
+    return init_primal_x, init_dual_y
+
+
+def _step_data_for_execution(data: _PDHGProblemData, jit: bool | None) -> _PDHGProblemData:
+    """Return problem data for the step function."""
     if not jit:
         return data
 
@@ -401,87 +289,12 @@ def _loop_data_for_execution(data: _PDHGProblemData, jit: bool | None) -> _PDHGP
     )
 
 
-def _execute_loop(
-    data: _PDHGProblemData,
-    init_primal: SDPPrimal | None,
-    init_dual: SDPDual | None,
-    tau: float,
-    sigma: float,
-    theta: float,
-    max_iter: int,
-    tol: float,
-    jit: bool | None,
-) -> _PDHGLoopResult:
-    """Run the array-only loop eagerly or through backend JIT."""
-    loop_data = _loop_data_for_execution(data, jit)
-    init_primal_x = (
-        loop_data.sdp.dom.zeros()
-        if init_primal is None
-        else loop_data.sdp.ctx.asarray(init_primal.X)
-    )
-    init_dual_y = (
-        loop_data.sdp.cod.zeros()
-        if init_dual is None
-        else loop_data.sdp.ctx.asarray(init_dual.y)
-    )
-
-    def loop():
-        return _run_pdhg_loop(
-            data=loop_data,
-            init_primal=init_primal_x,
-            init_dual=init_dual_y,
-            tau=tau,
-            sigma=sigma,
-            theta=theta,
-            max_iter=max_iter,
-            tol=tol,
-        )
-
-    if not jit:
-        return _PDHGLoopResult(*loop())
-
-    jax = getattr(loop_data.sdp.ops, "jax", None)
-    if jax is None:
-        raise ValueError("jit=True requires a backend exposing a JAX jit.")
-
-    return _PDHGLoopResult(*jax.jit(loop).lower().compile()())
-
-
-def _tidy_pdhg_output(
-    data: _PDHGProblemData,
-    raw: _PDHGLoopResult,
-    tol: float,
-    elapsed: float,
-    verbose: bool,
-    log_every: int,
-) -> ConvergenceInfo:
-    """Slice fixed-size loop histories and build ``ConvergenceInfo``."""
-    n_iters = int(raw.n_iters)
-    primal_obj = raw.primal_obj[:n_iters]
-    residuals = raw.residuals[:n_iters]
-    dual_obj = (
-        raw.dual_obj[:n_iters]
-        if data.quadratic_problem is not None
-        else None
-    )
-
-    if verbose:
-        for it in range(0, n_iters, log_every):
-            print(
-                f"[iter {it}] "
-                f"primal_obj={float(primal_obj[it]):.6e} "
-                f"resid={float(residuals[it]):.6e}"
-            )
-
-    return ConvergenceInfo(
-        primal=SDPPrimal(data.sdp.dom, raw.primal, ctx=data.sdp.ctx),
-        dual=SDPDual(data.sdp.cod, raw.dual, ctx=data.sdp.ctx),
-        primal_obj=primal_obj,
-        dual_obj=dual_obj,
-        grad_norm=residuals,
-        tol_reached=float(raw.residual) < tol,
-        time=elapsed,
-    )
+def _pdhg_problem_summary(data: _PDHGProblemData) -> str:
+    """Return a compact PDHG problem summary for solver logs."""
+    base = type(data.sdp).__name__
+    if data.quadratic_problem is None:
+        return base
+    return f"{base} with QuadraticReg(eps={data.sq_reg_float:g})"
 
 
 def run_pdhg_solver(
@@ -495,14 +308,14 @@ def run_pdhg_solver(
     theta: float = 1.0,
     sq_reg: float | None = None,
     jit: bool | None = None,
-    verbose: bool = False,
+    verbose: int = 1,
     log_every: int = 50,
-) -> ConvergenceInfo:
+) -> OptimizeResult:
     r"""Run PDHG on a dense SDP with optional zero-centered quadratic regularization.
 
     The wrapper validates inputs, prepares the scalar quadratic strength,
-    optionally JIT-compiles the backend loop, and trims fixed-size histories
-    returned by that loop.
+    and delegates iteration control, convergence, logging, histories, and
+    timing to :func:`sdplab.solvers.run_solver`.
     """
     _validate_pdhg_inputs(
         problem=problem,
@@ -517,26 +330,56 @@ def run_pdhg_solver(
     )
 
     data = _prepare_problem_data(problem=problem, sq_reg=sq_reg)
+    step_data = _step_data_for_execution(data, jit)
+    init_primal_x, init_dual_y = _init_arrays(step_data, init_primal, init_dual)
+    final_primal: dict[str, SDPPrimal] = {}
 
-    start = Time()
-    raw = _execute_loop(
-        data=data,
-        init_primal=init_primal,
-        init_dual=init_dual,
-        tau=tau,
-        sigma=sigma,
-        theta=theta,
+    def step_fn_impl(state):
+        primal_prev, dual_prev, primal_bar = state
+        primal, dual, primal_bar = pdhg_iteration(
+            problem=step_data.sdp,
+            primal_prev=primal_prev,
+            dual_prev=dual_prev,
+            primal_bar=primal_bar,
+            tau=tau,
+            sigma=sigma,
+            theta=theta,
+            sq_reg=step_data.sq_reg,
+        )
+        loss = _primal_objective(step_data, primal)
+        residual = _pdhg_residual_array(
+            sdp=step_data.sdp,
+            primal_new=primal,
+            primal_prev=primal_prev,
+            dual_new=dual,
+            dual_prev=dual_prev,
+        )
+        return (primal, dual, primal_bar), loss, residual
+
+    if jit:
+        jax = getattr(data.sdp.ops, "jax", None)
+        if jax is None:
+            raise ValueError("jit=True requires a backend exposing a JAX jit.")
+        step_fn = jax.jit(step_fn_impl)
+    else:
+        step_fn = step_fn_impl
+
+    def finalize_fn(state):
+        primal, dual, _ = state
+        final_primal["value"] = SDPPrimal(data.sdp.dom, primal, ctx=data.sdp.ctx)
+        return SDPDual(data.sdp.cod, dual, ctx=data.sdp.ctx)
+
+    result = run_solver(
+        init_state=(init_primal_x, init_dual_y, init_primal_x),
+        step_fn=step_fn,
+        finalize_fn=finalize_fn,
         max_iter=max_iter,
         tol=tol,
-        jit=jit,
-    )
-    elapsed = Time() - start
-
-    return _tidy_pdhg_output(
-        data=data,
-        raw=raw,
-        tol=tol,
-        elapsed=elapsed,
         verbose=verbose,
         log_every=log_every,
+        solver_name="pdhg",
+        problem_summary=_pdhg_problem_summary(data),
+        initial_dual_norm=float(data.sdp.cod.norm(init_dual_y)),
     )
+    result.primal = final_primal.get("value")
+    return result

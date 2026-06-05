@@ -1,1 +1,13 @@
 /archive/
+
+# Local/editor state
+.DS_Store
+.claude/
+.idea/
+.venv/
+
+# Python generated files and caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import numpy as np
-from spacecore import DenseLinOp, HermitianSpace
+import pytest
+from spacecore import Context, DenseLinOp, HermitianSpace, NumpyOps
 
 from sdplab.regularization import EntropyReg, QuadraticReg, SDPRegularized
 from sdplab.sdp import SDPDenseProblem
@@ -44,3 +45,44 @@ def test_regularized_primal_from_dual_normalizes_entropy_weights(np_ctx):
     expected = np.diag([np.exp(2.0), np.exp(1.0)])
     expected = expected / np.trace(expected)
     assert np.allclose(primal.X, expected)
+
+
+def test_regularized_sdp_convert_updates_nested_contexts(np_ctx):
+    """Ensure SDPRegularized converts both the base SDP and regularizer."""
+    sdp = make_trace_sdp(np_ctx)
+    reg_sdp = SDPRegularized(sdp, QuadraticReg(0.2, ctx=np_ctx))
+    target_ctx = Context(NumpyOps(), dtype=np.float64, enable_checks=False)
+
+    converted = reg_sdp.convert(target_ctx)
+
+    assert converted.ctx == target_ctx
+    assert converted.sdp.ctx == target_ctx
+    assert converted.reg.ctx == target_ctx
+    assert converted.sdp.ctx.enable_checks is False
+    assert converted.reg.ctx.enable_checks is False
+
+
+def test_regularized_sdp_torch_context_constructs_without_dtype_join_error():
+    """Ensure Torch-backed regularized SDPs avoid NumPy dtype joining."""
+    torch = pytest.importorskip("torch")
+    try:
+        from spacecore import TorchOps
+    except ImportError:
+        pytest.skip("spacecore TorchOps is unavailable")
+
+    from sdplab.solvers._torch import _problem_for_torch_loop
+
+    torch_ctx = Context(TorchOps(), dtype=torch.float64)
+    sdp = make_trace_sdp(torch_ctx)
+    reg_sdp = SDPRegularized(sdp, QuadraticReg(0.2, ctx=torch_ctx))
+    dual = sdp.dual_from_array(torch_ctx.asarray([3.0]))
+    primal = reg_sdp.primal_from_dual(dual, normalized=False)
+
+    loop_problem = _problem_for_torch_loop(reg_sdp)
+
+    assert dual.ctx.dtype is torch.float64
+    assert primal.ctx.dtype is torch.float64
+    assert loop_problem.sdp.ctx.dtype is torch.float64
+    assert loop_problem.reg.ctx.dtype is torch.float64
+    assert loop_problem.sdp.ctx.enable_checks is False
+    assert loop_problem.reg.ctx.enable_checks is False

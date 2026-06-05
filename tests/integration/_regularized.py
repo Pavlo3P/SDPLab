@@ -8,7 +8,7 @@ from spacecore import JaxOps, NumpyOps
 
 from sdplab.regularization import SDPRegularized
 from sdplab.sdp import SDPDual
-from sdplab.solvers import ConvergenceInfo, run_optax_solver
+from sdplab.solvers import OptimizeResult, solve_optax
 
 
 def run_regularized_solver(
@@ -22,7 +22,7 @@ def run_regularized_solver(
     learning_rate: float = 1e-2,
     verbose: bool = False,
     **kwargs,
-) -> ConvergenceInfo:
+) -> OptimizeResult:
     """Optimize a regularized SDP dual with the solver matching its backend.
 
     NumPy-backed problems are sent to ``scipy.optimize.minimize``. JAX-backed
@@ -37,7 +37,7 @@ def run_regularized_solver(
             import optax
 
             opt = optax.adam(learning_rate)
-        return run_optax_solver(
+        return solve_optax(
             problem,
             init_dual,
             opt=opt,
@@ -68,14 +68,14 @@ def _run_scipy_solver(
     tol: float,
     method: str | None,
     **kwargs,
-) -> ConvergenceInfo:
+) -> OptimizeResult:
     """Run SciPy's scalar optimizer on the NumPy dual objective."""
     import numpy as np
     from scipy import optimize
 
     x0 = np.asarray(init_dual.y).reshape(-1)
     shape = tuple(init_dual.y.shape)
-    dual_obj = []
+    objective_values = []
 
     def unpack(x):
         return problem.sdp.dual_from_array(np.asarray(x).reshape(shape))
@@ -83,7 +83,7 @@ def _run_scipy_solver(
     def objective(x):
         value = problem.dual_objective_reg(unpack(x))
         value = float(np.real(np.asarray(value)))
-        dual_obj.append(value)
+        objective_values.append(value)
         return -value
 
     options = dict(kwargs.pop("options", {}))
@@ -101,9 +101,19 @@ def _run_scipy_solver(
     end = Time()
 
     final_dual = unpack(result.x)
-    return ConvergenceInfo(
+    final_loss = -float(
+        getattr(
+            result,
+            "fun",
+            -objective_values[-1] if objective_values else np.nan,
+        )
+    )
+    return OptimizeResult(
         dual=final_dual,
-        dual_obj=np.asarray(dual_obj, dtype=float),
-        tol_reached=bool(result.success),
-        time=end - start,
+        converged=bool(result.success),
+        num_iters=int(getattr(result, "nit", len(objective_values))),
+        final_loss=final_loss,
+        final_grad_norm=float("nan"),
+        elapsed_seconds=end - start,
+        loss_history=objective_values,
     )

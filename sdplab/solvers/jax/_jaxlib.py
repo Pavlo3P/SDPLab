@@ -1,6 +1,6 @@
 r"""Pure-JAX first-order solver for regularized SDP duals.
 
-This module is the no-Optax JAX counterpart to ``run_optax_solver``.  It uses
+This module is the no-Optax JAX counterpart to ``solve_optax``.  It uses
 only JAX primitives for value/gradient evaluation and loop compilation.  The
 update rule is caller-configurable; by default it performs fixed-step gradient
 descent on the negative regularized dual objective.
@@ -15,10 +15,10 @@ from spacecore import Context, DenseArray
 
 from ...regularization import SDPRegularized
 from ...sdp import SDPDual
-from .._info import ConvergenceInfo
+from .._common import dual_objective_array
+from .._runner import OptimizeResult
 from ._optax import (
     _array_from_params,
-    _dual_objective_array,
     _params_from_array,
 )
 
@@ -94,7 +94,7 @@ def _run_jaxlib_loop(
 
     def loss_fun(params):
         y = _array_from_params(params)
-        return -ops.real(_dual_objective_array(problem, y))
+        return -ops.real(dual_objective_array(problem, y))
 
     value_and_grad = jax.value_and_grad(loss_fun)
 
@@ -114,10 +114,11 @@ def _run_jaxlib_loop(
         params, _, obj_log, grad_log, it = carry
 
         value, grad = value_and_grad(params)
+        dual_obj = -value
         grad_norm = _tree_l2_norm(grad)
         params = update(params, grad, value, learning_rate)
 
-        obj_log = ops.index_set(obj_log, it, -value)
+        obj_log = ops.index_set(obj_log, it, dual_obj)
         grad_log = ops.index_set(grad_log, it, grad_norm)
 
         return params, grad_norm, obj_log, grad_log, it + 1
@@ -139,7 +140,7 @@ def run_jaxlib_solver(
     tol: float = 1e-6,
     verbose: bool = False,
     log_every: int = 50,
-) -> ConvergenceInfo:
+) -> OptimizeResult:
     r"""Run a pure-JAX optimizer loop on the regularized SDP dual objective.
 
     Args:
@@ -156,8 +157,8 @@ def run_jaxlib_solver(
         log_every: Diagnostic print interval when ``verbose`` is enabled.
 
     Returns:
-        ``ConvergenceInfo`` with final dual variable, dual objective history,
-        gradient norm history, tolerance flag, and elapsed time.
+        ``OptimizeResult`` with final dual variable, dual-objective history,
+        gradient norm history, convergence status, and elapsed time.
     """
     _validate_jaxlib_inputs(
         problem=sdp,
@@ -188,27 +189,34 @@ def run_jaxlib_solver(
     compiled = jax.jit(loop).lower().compile()
 
     start = Time()
-    final_y, n_iters, grad_norm, dual_obj, grad_hist = compiled()
+    final_y, n_iters, grad_norm, obj_hist, grad_hist = compiled()
     elapsed = Time() - start
 
     n_iters = int(n_iters)
-    dual_obj = dual_obj[:n_iters]
+    obj_hist = obj_hist[:n_iters]
     grad_hist = grad_hist[:n_iters]
 
     if verbose:
         for it in range(0, n_iters, log_every):
             print(
                 f"[iter {it}] "
-                f"dual_obj={float(dual_obj[it]):.6e} "
+                f"dual_obj={float(obj_hist[it]):.6e} "
                 f"grad_norm={float(grad_hist[it]):.6e}"
             )
 
-    return ConvergenceInfo(
+    loss_history = [float(obj_hist[it]) for it in range(n_iters)]
+    grad_norm_history = [float(grad_hist[it]) for it in range(n_iters)]
+    final_loss = loss_history[-1] if loss_history else float("nan")
+    return OptimizeResult(
         dual=SDPDual(sdp.sdp.cod, final_y, ctx=sdp.sdp.ctx),
-        dual_obj=dual_obj,
-        grad_norm=grad_hist,
-        tol_reached=float(grad_norm) < tol,
-        time=elapsed,
+        converged=float(grad_norm) < tol,
+        num_iters=n_iters,
+        final_loss=final_loss,
+        final_grad_norm=float(grad_norm),
+        elapsed_seconds=elapsed,
+        loss_history=loss_history,
+        grad_norm_history=grad_norm_history,
+        step_times=None,
     )
 
 

@@ -46,14 +46,20 @@ from the eigendecomposition of :math:`\mathcal{A}^\dagger y - C`.
 
 from dataclasses import dataclass
 
-from spacecore import DenseArray, jax_pytree_class
+from spacecore import (
+    Context,
+    ContextBound,
+    DenseArray,
+    jax_pytree_class,
+    resolve_context_priority,
+)
 from ..sdp import SDPProblem, SDPPrimal, SDPDual
 from ..regularization import AbstractRegularizer
 
 
 @jax_pytree_class
-@dataclass
-class SDPRegularized:
+@dataclass(init=False)
+class SDPRegularized(ContextBound):
     r"""Semidefinite program equipped with a separable spectral regularizer.
 
     The base SDP supplies a cost matrix
@@ -93,6 +99,18 @@ class SDPRegularized:
 
     sdp: SDPProblem
     reg: AbstractRegularizer
+
+    def __init__(
+        self,
+        sdp: SDPProblem,
+        reg: AbstractRegularizer,
+        ctx: Context | str | None = None,
+    ):
+        """Create a context-bound regularized SDP from a base SDP and regularizer."""
+        ctx = sdp.ctx if ctx is None else resolve_context_priority(ctx)
+        super(SDPRegularized, self).__init__(ctx)
+        self.sdp = sdp.convert(self.ctx)
+        self.reg = reg.convert(self.ctx)
 
     def primal_objective_reg(self, primal: SDPPrimal) -> DenseArray:
         r"""Return the regularized primal objective.
@@ -194,13 +212,21 @@ class SDPRegularized:
         normalized = self.sdp.A.dom.ctx.ops.exp(log_phi_sp - lse)
         return normalized
 
+    def _convert(self, new_ctx: Context) -> "SDPRegularized":
+        """Return an equivalent regularized SDP in ``new_ctx``."""
+        return SDPRegularized(self.sdp, self.reg, ctx=new_ctx)
+
+    def convert(self, new_ctx: Context | str | None = None) -> "SDPRegularized":
+        """Return this regularized SDP represented in ``new_ctx``."""
+        return super().convert(new_ctx)
+
     def tree_flatten(self):
         """Return children and auxiliary data for JAX PyTree flattening."""
-        return (self.reg,), (self.sdp,)
+        return (self.reg,), (self.sdp, self.ctx)
 
     @classmethod
     def tree_unflatten(cls, aux, children):
         """Rebuild a regularized SDP from JAX PyTree data."""
         (reg,) = children
-        (sdp,) = aux
-        return cls(sdp, reg)
+        sdp, ctx = aux
+        return cls(sdp, reg, ctx=ctx)

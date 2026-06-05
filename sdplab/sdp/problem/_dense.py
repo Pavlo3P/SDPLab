@@ -123,7 +123,11 @@ class SDPDenseProblem(SDPProblem):
                 full eigendecomposition.
         """
         lhs = self.A.rapply(dual.y) - self.C
-        return self.A.dom.eigh(lhs)
+        eigvals, eigvecs = self.A.dom.spectral_decompose(lhs)
+        if k is not None:
+            eigvals = eigvals[..., :k]
+            eigvecs = eigvecs[..., :, :k]
+        return eigvals, eigvecs
 
     def primal_from_eigendecomp(self, eigvals: DenseArray, eigvecs: DenseArray) -> SDPPrimal:
         r"""Build a dense primal matrix from an eigendecomposition.

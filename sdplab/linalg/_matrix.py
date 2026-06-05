@@ -35,5 +35,5 @@ def log_trace_exp(space: HermitianSpace, x: DenseArray) -> DenseArray:
     For eigenvalues ``lambda_i`` of ``x``, this is computed as
     ``log(sum_i exp(lambda_i))``.
     """
-    evals, _ = space.eigh(x)
+    evals = space.spectrum(x)
     return space.ops.logsumexp(evals)

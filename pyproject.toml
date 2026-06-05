@@ -18,6 +18,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+quantum = [
+    "qiskit",
+    "qiskit-aer",
+]
 test = [
     "pytest",
 ]

@@ -19,13 +19,13 @@ only at the public boundary.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from time import time as Time
 
 from spacecore import Context, DenseArray, jax_pytree_class
 
 from ...regularization import SDPRegularized
 from ...sdp import SDPDual
-from .._info import ConvergenceInfo
+from .._common import dual_objective_array, problem_summary
+from .._runner import OptimizeResult, run_solver
 
 
 @jax_pytree_class
@@ -76,19 +76,6 @@ def _array_from_params(params):
     return params
 
 
-def _dual_objective_array(problem: SDPRegularized, y: DenseArray) -> DenseArray:
-    r"""Evaluate the regularized dual objective using only backend arrays."""
-    sdp = problem.sdp
-    reg = problem.reg
-
-    slack = sdp.A.rapply(y) - sdp.C
-    eigvals, _ = sdp.dom.eigh(slack)
-    eigvals = reg.ops.real(eigvals / reg.val)
-
-    linear = sdp.ops.real(sdp.cod.inner(sdp.b, y))
-    return linear - reg.val * reg._phi_star(eigvals)
-
-
 def _validate_optax_inputs(
     problem: SDPRegularized,
     opt,
@@ -96,9 +83,9 @@ def _validate_optax_inputs(
     tol: float,
     log_every: int,
 ) -> None:
-    """Validate public ``run_optax_solver`` inputs."""
+    """Validate public ``solve_optax`` inputs."""
     if not isinstance(problem, SDPRegularized):
-        raise TypeError("run_optax_solver expects SDPRegularized.")
+        raise TypeError("solve_optax expects SDPRegularized.")
     if opt is None:
         raise ValueError("opt must be provided.")
     if max_iter <= 0:
@@ -108,7 +95,7 @@ def _validate_optax_inputs(
     if log_every <= 0:
         raise ValueError("log_every must be positive.")
     if getattr(problem.sdp.ops, "jax", None) is None:
-        raise ValueError("run_optax_solver requires a JAX-backed SDP.")
+        raise ValueError("solve_optax requires a JAX-backed SDP.")
 
 
 def _problem_for_jit(problem: SDPRegularized) -> SDPRegularized:
@@ -122,76 +109,17 @@ def _problem_for_jit(problem: SDPRegularized) -> SDPRegularized:
     return SDPRegularized(problem.sdp.convert(ctx), reg)
 
 
-def _run_optax_loop(
-    problem: SDPRegularized,
-    init_params,
-    opt,
-    max_iter: int,
-    tol: float,
-):
-    """Run the compiled Optax loop and return raw arrays/histories."""
-    import jax
-    import optax as optax_lib
-
-    ops = problem.sdp.ops
-
-    def loss_fun(params):
-        y = _array_from_params(params)
-        return -ops.real(_dual_objective_array(problem, y))
-
-    value_and_grad = jax.value_and_grad(loss_fun)
-    state0 = opt.init(init_params)
-
-    carry0 = (
-        init_params,
-        state0,
-        ops.asarray(ops.inf),
-        ops.zeros((max_iter,)),
-        ops.zeros((max_iter,)),
-        ops.asarray(0),
-    )
-
-    def cond_fun(carry):
-        _, _, grad_norm, _, _, it = carry
-        return (it < max_iter) & (grad_norm >= tol)
-
-    def body_fun(carry):
-        params, state, _, obj_log, grad_log, it = carry
-
-        loss, grad = value_and_grad(params)
-        grad_norm = optax_lib.global_norm(grad)
-        updates, state = opt.update(
-            grad,
-            state,
-            params,
-            value=loss,
-            grad=grad,
-            value_fn=loss_fun,
-        )
-        params = optax_lib.apply_updates(params, updates)
-
-        obj_log = ops.index_set(obj_log, it, -loss)
-        grad_log = ops.index_set(grad_log, it, grad_norm)
-
-        return params, state, grad_norm, obj_log, grad_log, it + 1
-
-    params, _, grad_norm, obj_log, grad_log, n_iters = ops.while_loop(
-        cond_fun,
-        body_fun,
-        carry0,
-    )
-    return _array_from_params(params), n_iters, grad_norm, obj_log, grad_log
-
-
-def run_optax_solver(
+def solve_optax(
     sdp: SDPRegularized,
     init_dual: SDPDual | None = None,
     opt=None,
-    max_iter: int = 100000,
+    max_iter: int = 1000,
     tol: float = 1e-6,
-    verbose: bool = False,
+    verbose: int = 1,
     log_every: int = 50,
-) -> ConvergenceInfo:
+    ascii_only: bool = False,
+    color: bool | None = None,
+) -> OptimizeResult:
     r"""Run a JAX/Optax optimizer on the regularized SDP dual objective.
 
     Args:
@@ -201,13 +129,16 @@ def run_optax_solver(
         opt: Optax gradient transformation.
         max_iter: Maximum number of optimizer iterations.
         tol: Stop once the gradient norm is below this tolerance.
-        verbose: If true, print logged diagnostics after the compiled loop
-            returns.
-        log_every: Diagnostic print interval when ``verbose`` is enabled.
+        verbose: Verbosity level. ``0`` is silent, ``1`` prints header/footer,
+            ``2`` prints periodic diagnostics, ``3`` prints every iteration,
+            and ``4`` uses boxed verbose diagnostics.
+        log_every: Diagnostic print interval when ``verbose >= 2``.
+        ascii_only: Use ASCII-only verbose output when true.
+        color: Whether to use ANSI color in fancy output. ``None`` auto-detects.
 
     Returns:
-        ``ConvergenceInfo`` with the final dual variable, dual-objective
-        history, gradient norm history, tolerance flag, and elapsed time.
+        ``OptimizeResult`` with the final dual variable, loss and gradient
+        histories, convergence status, and timing information.
     """
     _validate_optax_inputs(
         problem=sdp,
@@ -224,41 +155,53 @@ def run_optax_solver(
     init_y = loop_problem.sdp.ctx.asarray(init_dual.y)
     init_params = _params_from_array(loop_problem, init_y)
 
-    def loop():
-        return _run_optax_loop(
-            problem=loop_problem,
-            init_params=init_params,
-            opt=opt,
-            max_iter=max_iter,
-            tol=tol,
+    import jax
+    import optax as optax_lib
+
+    ops = loop_problem.sdp.ops
+
+    def loss_fun(params):
+        y = _array_from_params(params)
+        return -ops.real(dual_objective_array(loop_problem, y))
+
+    value_and_grad = jax.value_and_grad(loss_fun)
+    init_opt_state = opt.init(init_params)
+
+    @jax.jit
+    def step_fn(state):
+        params, opt_state = state
+        loss, grad = value_and_grad(params)
+        dual_obj = -loss
+        grad_norm = optax_lib.global_norm(grad)
+        updates, opt_state = opt.update(
+            grad,
+            opt_state,
+            params,
+            value=loss,
+            grad=grad,
+            value_fn=loss_fun,
         )
+        params = optax_lib.apply_updates(params, updates)
+        return (params, opt_state), dual_obj, grad_norm
 
-    jax = loop_problem.sdp.ops.jax
-    compiled = jax.jit(loop).lower().compile()
+    def finalize_fn(state):
+        params, _ = state
+        return sdp.sdp.dual_from_array(_array_from_params(params))
 
-    start = Time()
-    final_y, n_iters, grad_norm, dual_obj, grad_hist = compiled()
-    elapsed = Time() - start
-
-    n_iters = int(n_iters)
-    dual_obj = dual_obj[:n_iters]
-    grad_hist = grad_hist[:n_iters]
-
-    if verbose:
-        for it in range(0, n_iters, log_every):
-            print(
-                f"[iter {it}] "
-                f"dual_obj={float(dual_obj[it]):.6e} "
-                f"grad_norm={float(grad_hist[it]):.6e}"
-            )
-
-    return ConvergenceInfo(
-        dual=sdp.sdp.dual_from_array(final_y),
-        dual_obj=dual_obj,
-        grad_norm=grad_hist,
-        tol_reached=float(grad_norm) < tol,
-        time=elapsed,
+    return run_solver(
+        init_state=(init_params, init_opt_state),
+        step_fn=step_fn,
+        finalize_fn=finalize_fn,
+        max_iter=max_iter,
+        tol=tol,
+        verbose=verbose,
+        log_every=log_every,
+        solver_name="optax, backend=jax",
+        problem_summary=problem_summary(sdp),
+        initial_dual_norm=float(loop_problem.sdp.cod.norm(init_y)),
+        ascii_only=ascii_only,
+        color=color,
     )
 
 
-__all__ = ["run_optax_solver", ]
+__all__ = ["solve_optax"]

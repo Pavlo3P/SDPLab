@@ -195,11 +195,11 @@ class SDPProblem(ContextBound):
 
     def dual_from_array(self, array: ArrayLike) -> SDPDual:
         r"""Interpret ``array`` in :math:`\operatorname{cod}(\mathcal{A})` as a dual variable :math:`y`."""
-        return SDPDual(self.cod, array)
+        return SDPDual(self.cod, array, ctx=self.ctx)
 
     def primal_from_array(self, array: ArrayLike) -> SDPPrimal:
         r"""Interpret ``array`` in :math:`\operatorname{dom}(\mathcal{A})` as a primal variable :math:`X`."""
-        return SDPPrimal(self.dom, array)
+        return SDPPrimal(self.dom, array, ctx=self.ctx)
 
     def primal_from_eigendecomp(self, eigvals: DenseArray, eigvecs: DenseArray) -> SDPPrimal:
         r"""Build :math:`X = V \operatorname{diag}(\lambda) V^\dagger` as a primal variable.

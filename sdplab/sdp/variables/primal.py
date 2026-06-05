@@ -70,7 +70,11 @@ class SDPPrimal(SDPVar):
         :math:`\lambda` and :math:`V`. The optional ``k`` is forwarded to the
         space-specific eigensolver.
         """
-        return self.space.eigh(self.X, k)
+        eigvals, eigvecs = self.space.spectral_decompose(self.X)
+        if k is not None:
+            eigvals = eigvals[..., :k]
+            eigvecs = eigvecs[..., :, :k]
+        return eigvals, eigvecs
 
     def tree_flatten(self):
         """Return children and auxiliary data for JAX PyTree flattening."""

@@ -57,6 +57,7 @@ To implement a new regularizer, define the four scalar operations:
     log_phi_star_prime:
         The same derivative in log form for numerically stable normalization.
 """
+from __future__ import annotations
 
 from abc import abstractmethod
 from dataclasses import dataclass
@@ -157,7 +158,7 @@ class AbstractRegularizer(ContextBound):
             :math:`\operatorname{Tr}[\varphi(X)] = \sum_i \varphi(\lambda_i(X))`.
         """
         phi_eigvals = self.phi(primal_eigvals)
-        return phi_eigvals.sum()
+        return self.ops.sum(phi_eigvals)
 
     def _phi_star(self, constr_eigvals: DenseArray) -> DenseArray:
         r"""Return the spectral trace of :math:`\psi` on scaled dual slack.
@@ -173,11 +174,10 @@ class AbstractRegularizer(ContextBound):
             :math:`S = (\mathcal{A}^\dagger y - C) / \varepsilon`.
         """
         phi_star_eigvals = self.phi_star(constr_eigvals)
-        return phi_star_eigvals.sum()
+        return self.ops.sum(phi_star_eigvals)
 
     def __call__(self, primal: SDPPrimal, k: int = None) -> DenseArray:
         r"""Evaluate :math:`R_\varepsilon(X) = \varepsilon \operatorname{Tr}[\varphi(X)]`."""
-        # R_eps(X) = eps * Tr[phi(X)]
         primal_eigvals, _ = primal.eigh(k)
         return self.val * self._phi(primal_eigvals)
 
@@ -195,10 +195,13 @@ class AbstractRegularizer(ContextBound):
         where :math:`s_i` are the eigenvalues of
         :math:`\mathcal{A}^\dagger y - C`.
         """
-        # R_eps^*(y) = eps * Tr[psi((A^dagger y - C) / eps)]
         constr_eigvals, _ = sdp.dual_constr_eig_decomp(dual, k)
         constr_eigvals = self.ops.real(constr_eigvals / self.val)
         return self.val * self._phi_star(constr_eigvals)
+
+    def _convert(self, new_ctx: Context) -> AbstractRegularizer:
+        """Return this regularizer represented in ``new_ctx``."""
+        return type(self)(self.val, ctx=new_ctx)
 
     def tree_flatten(self):
         """Return children and auxiliary data for JAX PyTree flattening."""
