@@ -1,30 +1,19 @@
-r"""Regularized SDP wrappers and spectral regularizers.
+r"""Built-in scalar functions used as spectral SDP regularizers.
 
-For ``X = V diag(lambda) V^dagger``, a spectral regularizer adds the trace-form
-penalty :math:`\varepsilon \operatorname{Tr}[\varphi(X)]` to the primal SDP
-objective :math:`\operatorname{Tr}[C X]`. The Legendre transform of
-:math:`\varphi` is denoted by :math:`\psi`; in code, ``phi_star`` implements
-:math:`\psi`. The dual side is evaluated on eigenvalues of the dual slack
-expression :math:`A^\dagger y - C`.
-
-Regularization changes the problem from "find a best feasible matrix" to
-"find a best feasible matrix while also preferring a particular spectrum."
-Entropy regularization prefers spread-out spectra. Quadratic regularization
-penalizes large eigenvalues.
+Each regularizer defines a convex scalar :math:`\varphi`, its Legendre
+transform :math:`\psi`, and the derivative :math:`\psi'` used for
+dual-to-primal eigenvalue recovery. In code, ``phi`` implements
+:math:`\varphi`, ``phi_star`` implements :math:`\psi`, and
+``phi_star_prime`` implements :math:`\psi'`.
 """
 
-from .regs import (
-    AbstractRegularizer,
-    EntropyReg,
-    EntropyRegLog,
-    QuadraticReg
-)
-from ._reg_sdp import SDPRegularized
+from ._base import Regularizer
+from .entropy import EntropyReg, EntropyRegLog
+from .quadratic import QuadraticReg
 
 __all__ = [
-    "AbstractRegularizer",
-    "EntropyRegLog",
-    "EntropyReg",
-    "QuadraticReg",
-    "SDPRegularized",
+    'Regularizer',
+    'EntropyRegLog',
+    'EntropyReg',
+    'QuadraticReg',
 ]

@@ -59,16 +59,51 @@ To implement a new regularizer, define the four scalar operations:
 """
 from __future__ import annotations
 
+from typing import Tuple
 from abc import abstractmethod
 from dataclasses import dataclass
 
-from spacecore import DenseArray, Context, jax_pytree_class, ContextBound
+from spacecore import (
+    DenseArray,
+    ArrayLike,
+    Context,
+    jax_pytree_class,
+    ContextBound,
+    EuclideanJordanAlgebraSpace,
+    resolve_context_priority,
+)
 
-from ...sdp import SDPProblem, SDPPrimal, SDPDual
+
+def _validate_positive_scalar(
+    val: DenseArray | float,
+    ctx: Context,
+) -> float:
+    """Convert ``val`` to ``ctx`` and validate that it is a positive real scalar."""
+    value = ctx.asarray(val)
+
+    if tuple(value.shape) != ():
+        raise ValueError(
+            f"Expected a scalar value, got shape {value.shape}."
+        )
+
+    dtype = ctx.ops.get_dtype(value)
+    if ctx.ops.is_complex_dtype(dtype):
+        raise TypeError(
+            "Expected a real scalar value."
+        )
+
+    value = float(value)
+    if not bool(value > 0):
+        raise ValueError(
+            f"Expected a strictly positive value, got {value}."
+        )
+
+    return value
+
 
 @jax_pytree_class
 @dataclass(init=False)
-class AbstractRegularizer(ContextBound):
+class Regularizer(ContextBound):
     r"""Base class for scalar spectral regularizers.
 
     Subclasses define:
@@ -102,15 +137,26 @@ class AbstractRegularizer(ContextBound):
     :math:`\varphi`, for example entropy or a quadratic penalty.
     """
 
-    def __init__(self, val: DenseArray | float, ctx: Context | str | None = None):
+    def __init__(self,
+                 val: DenseArray | float,
+                 space: EuclideanJordanAlgebraSpace,
+                 ctx: Context | str | None = None):
         r"""Create a regularizer with strength :math:`\varepsilon = \texttt{val}`.
 
         Larger :math:`\varepsilon` makes the spectral penalty more influential.
         Smaller :math:`\varepsilon` makes the model closer to the original
         unregularized SDP.
         """
-        super(AbstractRegularizer, self).__init__(ctx)
-        self.val = self.ctx.asarray(val)
+        ctx = resolve_context_priority(ctx, space, val)
+        super(Regularizer, self).__init__(ctx)
+
+        if not space.is_euclidean:
+            raise NotImplementedError(
+                "Regularization currently supports only Euclidean matrix spaces."
+            )
+
+        self.val = _validate_positive_scalar(val, ctx)
+        self.space = space.convert(ctx)
 
     @abstractmethod
     def phi(self, x: DenseArray) -> DenseArray:
@@ -146,73 +192,92 @@ class AbstractRegularizer(ContextBound):
         underflow before normalization.
         """
 
-    def _phi(self, primal_eigvals: DenseArray) -> DenseArray:
+    def _phi(self, eigvals: DenseArray) -> DenseArray:
         r"""Return :math:`\operatorname{Tr}[\varphi(X)]` for primal eigenvalues.
 
         Args:
-            primal_eigvals: Eigenvalues :math:`\lambda_i(X)` of a primal
-                matrix :math:`X \in \operatorname{dom}(\mathcal{A})`.
+            eigvals: Eigenvalues :math:`\lambda_i(X)` of a matrix :math:`X`.
 
         Returns:
             The spectral trace
             :math:`\operatorname{Tr}[\varphi(X)] = \sum_i \varphi(\lambda_i(X))`.
         """
-        phi_eigvals = self.phi(primal_eigvals)
+        phi_eigvals = self.phi(eigvals)
         return self.ops.sum(phi_eigvals)
 
-    def _phi_star(self, constr_eigvals: DenseArray) -> DenseArray:
-        r"""Return the spectral trace of :math:`\psi` on scaled dual slack.
+    def _phi_star(self, eigvals: DenseArray) -> DenseArray:
+        r"""Return :math:`\operatorname{Tr}[\varphi^*(X)]` for primal eigenvalues.
 
         Args:
-            constr_eigvals: Eigenvalues :math:`s_i / \varepsilon` of
-                :math:`(\mathcal{A}^\dagger y - C) / \varepsilon`.
+            eigvals: Eigenvalues :math:`\lambda_i(X)` of a matrix :math:`X`.
 
         Returns:
-            The trace
-            :math:`\operatorname{Tr}[\psi(S)] = \sum_i \psi(s_i / \varepsilon)`,
-            where
-            :math:`S = (\mathcal{A}^\dagger y - C) / \varepsilon`.
+            The spectral trace
+            :math:`\operatorname{Tr}[\varphi^*(X)] = \sum_i \varphi^*(\lambda_i(X))`.
         """
-        phi_star_eigvals = self.phi_star(constr_eigvals)
+        phi_star_eigvals = self.phi_star(eigvals)
         return self.ops.sum(phi_star_eigvals)
 
-    def __call__(self, primal: SDPPrimal, k: int = None) -> DenseArray:
-        r"""Evaluate :math:`R_\varepsilon(X) = \varepsilon \operatorname{Tr}[\varphi(X)]`."""
-        primal_eigvals, _ = primal.eigh(k)
-        return self.val * self._phi(primal_eigvals)
+    def __call__(self, X: ArrayLike) -> DenseArray:
+        r"""Evaluate :math:`\varepsilon \operatorname{Tr}[\varphi(X)]`."""
+        eigvals = self.ops.real(self.space.spectrum(X))
+        return self.val * self._phi(eigvals)
 
-    def legendre(self, sdp: SDPProblem, dual: SDPDual, k: int = None) -> DenseArray:
-        r"""Evaluate the dual regularization trace for a dual variable.
+    def legendre(self, X: ArrayLike) -> DenseArray:
+        r"""Evaluate :math:`\varepsilon \operatorname{Tr}[\varphi^*(X / \varepsilon)]`."""
+        eigvals = self.ops.real(self.space.spectrum(X))
+        return self.val * self._phi_star(eigvals / self.val)
 
-        For :math:`y \in \operatorname{cod}(\mathcal{A})`, this returns
-
-        .. math::
-
-            \varepsilon \operatorname{Tr}\left[
-                \psi\left(\frac{\mathcal{A}^\dagger y - C}{\varepsilon}\right)
-            \right],
-
-        where :math:`s_i` are the eigenvalues of
-        :math:`\mathcal{A}^\dagger y - C`.
-        """
-        constr_eigvals, _ = sdp.dual_constr_eig_decomp(dual, k)
-        constr_eigvals = self.ops.real(constr_eigvals / self.val)
-        return self.val * self._phi_star(constr_eigvals)
-
-    def _convert(self, new_ctx: Context) -> AbstractRegularizer:
+    def _convert(self, new_ctx: Context) -> Regularizer:
         """Return this regularizer represented in ``new_ctx``."""
-        return type(self)(self.val, ctx=new_ctx)
+        return type(self)(self.val, self.space.convert(new_ctx), ctx=new_ctx)
+
+    def phi_star_prime_matrix(self, X: ArrayLike, normalized: bool = True) -> ArrayLike:
+        r"""
+        Return (\varphi^*)'(X / \varepsilon) matrix.
+        """
+        eigvals, eigvecs = self.space.spectral_decompose(X)
+        eigvals = eigvals / self.val
+        if normalized:
+            eigvals = self._robust_normalization(eigvals)
+        else:
+            eigvals = self.phi_star_prime(eigvals)
+        return self.space.from_spectrum(eigvals, eigvecs)
+
+    def legendre_and_grad(self, X: ArrayLike, normalized: bool = False) -> Tuple[DenseArray, ArrayLike]:
+        eigvals, eigvecs = self.space.spectral_decompose(X)
+        eigvals = self.ops.real(eigvals) / self.val
+        legendre =  self.val * self._phi_star(eigvals)
+        if normalized:
+            phi_star_prime_eigvals = self._robust_normalization(eigvals)
+        else:
+            phi_star_prime_eigvals = self.phi_star_prime(eigvals)
+        phi_star_prime_X = self.space.from_spectrum(phi_star_prime_eigvals, eigvecs)
+
+        return legendre, phi_star_prime_X
+
+    def _robust_normalization(self, eigvals: DenseArray) -> DenseArray:
+        r"""Normalize :math:`\log(\psi'(s_i / \varepsilon))` with log-sum-exp.
+
+        Here ``eigvals`` stores the scaled slack eigenvalues
+        :math:`s_i / \varepsilon` from :math:`\mathcal{A}^\dagger y - C`.
+        """
+        log_phi_sp = self.log_phi_star_prime(eigvals)
+        lse = self.ops.logsumexp(log_phi_sp)
+        normalized = self.ops.exp(log_phi_sp - lse)
+        return normalized
 
     def tree_flatten(self):
         """Return children and auxiliary data for JAX PyTree flattening."""
-        return (self.val,), (self.ctx,)
+        return (self.val,), (self.space, self.ctx)
 
     @classmethod
     def tree_unflatten(cls, aux, children):
         """Rebuild a regularizer from JAX PyTree data."""
         (reg,) = children
-        (ctx,) = aux
+        (space, ctx) = aux
         obj = cls.__new__(cls)
         obj._ctx = ctx
+        obj.space = space
         obj.val = reg
         return obj

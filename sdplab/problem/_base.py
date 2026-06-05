@@ -63,16 +63,43 @@ Practical checklist:
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Any
 
 from spacecore import (
-    ArrayLike, DenseArray, BackendOps, Context, Space,
-    ContextBound, resolve_context_priority
+    ArrayLike, Context, Space,
+    ContextBound, resolve_context_priority,
+    EuclideanJordanAlgebraSpace,
+    HermitianSpace, InnerProductSpace,
 )
 from spacecore.linop import LinOp
 
-from ...sdp.variables import SDPPrimal, SDPDual
+from ._hermitian import HermitianCost
+from ..variables import SDPPrimal, SDPDual
+
+
+def _dispatch_cost(
+        C: Any,
+        matrix_space: EuclideanJordanAlgebraSpace,
+        ctx: Context
+) -> HermitianCost:
+    ops = ctx.ops
+    if ops.is_dense(C):
+        C = ctx.assert_dense(C)
+        if not isinstance(matrix_space, HermitianSpace):
+            raise TypeError('Dense cost must have Hermitian space.')
+        return HermitianCost.from_dense(C, matrix_space, ctx)
+    elif ops.is_sparse(C):
+        C = ctx.assert_sparse(C)
+        if not isinstance(matrix_space, HermitianSpace):
+            raise TypeError('Dense cost must have Hermitian space.')
+        return HermitianCost.from_sparse(C, matrix_space, ctx)
+    elif isinstance(C, HermitianCost):
+        if not (C.matrix_space == matrix_space):
+            raise TypeError('Linear operator domain and HermitianCost matrix domain should coincide.')
+        return C.convert(ctx)
+    else:
+        raise TypeError('Unknown cost type.')
 
 
 @dataclass(init=False)
@@ -106,7 +133,7 @@ class SDPProblem(ContextBound):
     """
 
     def __init__(self,
-                 C: ArrayLike,
+                 C: HermitianCost | ArrayLike,
                  A: LinOp,
                  b: ArrayLike,
                  ctx: Context | str | None = None,
@@ -131,14 +158,26 @@ class SDPProblem(ContextBound):
                 many modeling mistakes early: wrong matrix size, wrong dtype,
                 or a constraint vector with the wrong length.
         """
-        ctx = resolve_context_priority(ctx, A)
+        ctx = resolve_context_priority(ctx, C, A, b)
         super(SDPProblem, self).__init__(ctx)
 
+        if not isinstance(A.dom, EuclideanJordanAlgebraSpace):
+            raise TypeError()
+        if not A.dom.is_euclidean:
+            raise NotImplementedError(
+                "SDP problem currently supports only Euclidean matrix spaces."
+            )
+        if not isinstance(A.cod, InnerProductSpace):
+            raise TypeError()
+        if not A.cod.is_euclidean:
+            raise NotImplementedError(
+                "SDP problem currently supports only Euclidean matrix spaces."
+            )
+
         self.A = A.convert(ctx)
-        self.A.dom.check_member(C)
         self.A.cod.check_member(b)
-        self.C = C
-        self.b = b
+        self.C = _dispatch_cost(C, A.dom, ctx)
+        self.b = self.dual_from_array(b)
 
     @property
     def dom(self) -> Space:
@@ -161,18 +200,17 @@ class SDPProblem(ContextBound):
         """
         return self.A.cod
 
-    @abstractmethod
     def primal_objective(self, primal: SDPPrimal) -> float:
         r"""Evaluate the primal objective :math:`\operatorname{Tr}[C X]`.
 
         In dense symmetric or Hermitian matrix spaces this is the trace
         objective :math:`\operatorname{Re}\operatorname{Tr}[C X]`.
         """
-        raise NotImplementedError()
+        raise self.ops.real(self.C.inner(primal.X))
 
     def dual_objective(self, dual: SDPDual) -> float:
         r"""Evaluate the linear dual objective term :math:`\operatorname{Tr}[b\ y]` in :math:`\operatorname{cod}(\mathcal{A})`."""
-        return self.ops.real(self.cod.inner(self.b, dual.y))
+        return self.ops.real(self.b.inner(dual))
 
     def A_apply(self, primal: SDPPrimal) -> SDPDual:
         r"""Return :math:`\mathcal{A}X` wrapped as an ``SDPDual``-space value.
@@ -200,27 +238,3 @@ class SDPProblem(ContextBound):
     def primal_from_array(self, array: ArrayLike) -> SDPPrimal:
         r"""Interpret ``array`` in :math:`\operatorname{dom}(\mathcal{A})` as a primal variable :math:`X`."""
         return SDPPrimal(self.dom, array, ctx=self.ctx)
-
-    def primal_from_eigendecomp(self, eigvals: DenseArray, eigvecs: DenseArray) -> SDPPrimal:
-        r"""Build :math:`X = V \operatorname{diag}(\lambda) V^\dagger` as a primal variable.
-
-        Subclasses that represent dense matrix cones should use ``eigvecs`` as
-        columns of :math:`V` and ``eigvals`` as the corresponding spectrum
-        :math:`\lambda`.
-        """
-        raise NotImplementedError()
-
-    @abstractmethod
-    def dual_constr_eig_decomp(self, dual: SDPDual, k: int = None) -> tuple[DenseArray, DenseArray]:
-        r"""Return eigenpairs of the dual slack expression :math:`\mathcal{A}^\dagger y - C`.
-
-        This eigendecomposition is used to check or manipulate the
-        semidefinite dual constraint and to recover primal matrices in
-        regularized formulations.
-
-        Args:
-            dual: Dual variable used to form the slack expression.
-            k: Number of first eigenpairs to return. If ``None``, return the
-                full eigendecomposition.
-        """
-        raise NotImplementedError()

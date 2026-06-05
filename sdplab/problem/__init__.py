@@ -21,9 +21,11 @@ once, then pass it to different solvers or regularizers.
 """
 
 from ._base import SDPProblem
-from ._dense import SDPDenseProblem
+from ._hermitian import HermitianCost, DenseHermitianCost, SparseHermitianCost
 
 __all__ = [
     "SDPProblem",
-    "SDPDenseProblem",
+    "HermitianCost",
+    "DenseHermitianCost",
+    "SparseHermitianCost",
 ]

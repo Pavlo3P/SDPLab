@@ -19,11 +19,11 @@ Its Legendre transform is applied spectrally to the scaled dual slack
 """
 
 from spacecore import DenseArray, jax_pytree_class
-from .base import AbstractRegularizer
+from ._base import Regularizer
 
 
 @jax_pytree_class
-class QuadraticReg(AbstractRegularizer):
+class QuadraticReg(Regularizer):
     r"""Quadratic spectral regularizer on nonnegative spectra.
 
     The scalar convex function is

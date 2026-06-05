@@ -20,11 +20,11 @@ slack
 """
 
 from spacecore import DenseArray, jax_pytree_class
-from .base import AbstractRegularizer
+from ._base import Regularizer
 
 
 @jax_pytree_class
-class EntropyReg(AbstractRegularizer):
+class EntropyReg(Regularizer):
     r"""Negative von Neumann entropy spectral regularizer.
 
     The scalar convex function is
