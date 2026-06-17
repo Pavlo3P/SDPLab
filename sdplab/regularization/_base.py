@@ -1,4 +1,4 @@
-r"""Base class for spectral regularizers for SDPs.
+r"""Base class for separable spectral regularizers for SDPs.
 
 The base SDP supplies a cost matrix
 :math:`C \in \operatorname{dom}(\mathcal{A})`, a linear operator
@@ -6,8 +6,7 @@ The base SDP supplies a cost matrix
 \operatorname{cod}(\mathcal{A})`, and constraint RHS
 :math:`b \in \operatorname{cod}(\mathcal{A})`.
 
-Most regularizers in this package are separable: they act on a primal matrix
-only through a sum over scalar functions of its eigenvalues.
+A spectral regularizer acts on a primal matrix only through its eigenvalues.
 For
 
 .. math::
@@ -37,7 +36,7 @@ matrix
     \frac{\mathcal{A}^\dagger y - C}{\varepsilon},
     \qquad y \in \operatorname{cod}(\mathcal{A}),
 
-and returns, for separable regularizers,
+and returns
 
 .. math::
 
@@ -57,14 +56,11 @@ To implement a new regularizer, define the four scalar operations:
         scaled dual-slack eigenvalues.
     log_phi_star_prime:
         The same derivative in log form for numerically stable normalization.
-
-Coupled regularizers, such as the log-trace-exponential entropy variant, may
-override the spectral aggregation and derivative methods when no meaningful
-elementwise :math:`\psi` exists.
 """
 from __future__ import annotations
 
-from typing import Any, Tuple
+from math import isfinite
+from typing import Tuple
 from abc import abstractmethod
 from dataclasses import dataclass
 
@@ -98,9 +94,9 @@ def _validate_positive_scalar(
         )
 
     value = float(value)
-    if not bool(value > 0):
+    if not isfinite(value) or value <= 0.0:
         raise ValueError(
-            f"Expected a strictly positive value, got {value}."
+            f"Expected a finite strictly positive value, got {value}."
         )
 
     return value
@@ -144,25 +140,24 @@ class Regularizer(ContextBound):
 
     def __init__(self,
                  val: DenseArray | float,
-                 space: EuclideanJordanAlgebraSpace | None = None,
+                 space: EuclideanJordanAlgebraSpace,
                  ctx: Context | str | None = None):
         r"""Create a regularizer with strength :math:`\varepsilon = \texttt{val}`.
 
         Larger :math:`\varepsilon` makes the spectral penalty more influential.
         Smaller :math:`\varepsilon` makes the model closer to the original
-        unregularized SDP. ``space`` may be omitted for scalar formula use; it
-        is required before evaluating matrix-level methods.
+        unregularized SDP.
         """
         ctx = resolve_context_priority(ctx, space, val)
         super(Regularizer, self).__init__(ctx)
 
-        if space is not None and not space.is_euclidean:
+        if not space.is_euclidean:
             raise NotImplementedError(
                 "Regularization currently supports only Euclidean matrix spaces."
             )
 
         self.val = _validate_positive_scalar(val, ctx)
-        self.space = space.convert(ctx) if space is not None else None
+        self.space = space.convert(ctx)
 
     @abstractmethod
     def phi(self, x: DenseArray) -> DenseArray:
@@ -226,29 +221,22 @@ class Regularizer(ContextBound):
 
     def __call__(self, X: ArrayLike) -> DenseArray:
         r"""Evaluate :math:`\varepsilon \operatorname{Tr}[\varphi(X)]`."""
-        if self.space is None:
-            raise ValueError("Matrix evaluation requires a regularizer space.")
         eigvals = self.ops.real(self.space.spectrum(X))
         return self.val * self._phi(eigvals)
 
     def legendre(self, X: ArrayLike) -> DenseArray:
-        r"""Evaluate the matrix conjugate term at ``X``."""
-        if self.space is None:
-            raise ValueError("Matrix evaluation requires a regularizer space.")
+        r"""Evaluate :math:`\varepsilon \operatorname{Tr}[\varphi^*(X / \varepsilon)]`."""
         eigvals = self.ops.real(self.space.spectrum(X))
         return self.val * self._phi_star(eigvals / self.val)
 
     def _convert(self, new_ctx: Context) -> Regularizer:
         """Return this regularizer represented in ``new_ctx``."""
-        space = self.space.convert(new_ctx) if self.space is not None else None
-        return type(self)(self.val, space, ctx=new_ctx)
+        return type(self)(self.val, self.space.convert(new_ctx), ctx=new_ctx)
 
     def phi_star_prime_matrix(self, X: ArrayLike, normalized: bool = True) -> ArrayLike:
         r"""
         Return (\varphi^*)'(X / \varepsilon) matrix.
         """
-        if self.space is None:
-            raise ValueError("Matrix evaluation requires a regularizer space.")
         eigvals, eigvecs = self.space.spectral_decompose(X)
         eigvals = eigvals / self.val
         if normalized:
@@ -258,11 +246,9 @@ class Regularizer(ContextBound):
         return self.space.from_spectrum(eigvals, eigvecs)
 
     def legendre_and_grad(self, X: ArrayLike, normalized: bool = False) -> Tuple[DenseArray, ArrayLike]:
-        if self.space is None:
-            raise ValueError("Matrix evaluation requires a regularizer space.")
         eigvals, eigvecs = self.space.spectral_decompose(X)
         eigvals = self.ops.real(eigvals) / self.val
-        legendre = self.val * self._phi_star(eigvals)
+        legendre =  self.val * self._phi_star(eigvals)
         if normalized:
             phi_star_prime_eigvals = self._robust_normalization(eigvals)
         else:
@@ -296,71 +282,3 @@ class Regularizer(ContextBound):
         obj.space = space
         obj.val = reg
         return obj
-
-
-@jax_pytree_class
-@dataclass(init=False)
-class SDPRegularized(ContextBound):
-    r"""Semidefinite program equipped with a spectral regularizer.
-
-    The regularized primal objective is
-
-    .. math::
-
-        \operatorname{Tr}[C X] + \varepsilon\operatorname{Tr}[\varphi(X)]
-
-    for separable regularizers. The dual-side regularizer is delegated to
-    ``reg.legendre`` so coupled variants such as ``EntropyRegLog`` use their
-    own matrix conjugate.
-    """
-
-    def __init__(self, sdp: Any, reg: Regularizer, ctx: Context | str | None = None):
-        ctx = resolve_context_priority(ctx, sdp, reg)
-        super(SDPRegularized, self).__init__(ctx)
-        self.sdp = sdp.convert(ctx) if getattr(sdp, "ctx", None) != ctx else sdp
-        self.reg = self._bind_regularizer(reg.convert(ctx))
-
-    def _bind_regularizer(self, reg: Regularizer) -> Regularizer:
-        space = self.sdp.dom
-        if reg.space is None:
-            return type(reg)(reg.val, space, ctx=self.ctx)
-        if reg.space != space:
-            raise ValueError("Regularizer space must match the SDP primal domain.")
-        return reg
-
-    def _cost_matrix(self):
-        cost = self.sdp.C
-        return cost.to_dense() if hasattr(cost, "to_dense") else cost
-
-    def _dual_slack(self, dual: Any):
-        return self.sdp.A.rapply(dual.y) - self._cost_matrix()
-
-    def primal_objective_reg(self, primal: Any) -> DenseArray:
-        r"""Return the regularized primal objective."""
-        linear = self.sdp.C.inner(primal.X) if hasattr(self.sdp.C, "inner") else self.sdp.primal_objective(primal)
-        return self.ops.real(linear) + self.reg(primal.X)
-
-    def dual_objective_reg(self, dual: Any) -> DenseArray:
-        r"""Return the smooth regularized dual objective."""
-        return self.sdp.dual_objective(dual) - self.reg.legendre(self._dual_slack(dual))
-
-    def primal_from_dual(self, dual: Any, normalized: bool = True, k: int | None = None) -> Any:
-        r"""Recover a primal variable from a dual iterate."""
-        if k is not None:
-            raise NotImplementedError("Truncated primal recovery is not available for this SDP implementation.")
-        X = self.reg.phi_star_prime_matrix(self._dual_slack(dual), normalized=normalized)
-        return self.sdp.primal_from_array(X)
-
-    def _convert(self, new_ctx: Context) -> SDPRegularized:
-        return type(self)(self.sdp, self.reg, ctx=new_ctx)
-
-    def tree_flatten(self):
-        """Return children and auxiliary data for JAX PyTree flattening."""
-        return (self.reg,), (self.sdp, self.ctx)
-
-    @classmethod
-    def tree_unflatten(cls, aux, children):
-        """Rebuild a regularized SDP from JAX PyTree data."""
-        (reg,) = children
-        (sdp, ctx) = aux
-        return cls(sdp, reg, ctx=ctx)

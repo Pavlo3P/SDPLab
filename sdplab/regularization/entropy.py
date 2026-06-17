@@ -1,159 +1,166 @@
-r"""Entropy spectral regularizers for regularized SDPs.
+from __future__ import annotations
 
-For a primal matrix :math:`X \in \operatorname{dom}(\mathcal{A})`, entropy
-regularization contributes
+from spacecore import (
+    ArrayLike,
+    Context,
+    DenseArray,
+    EuclideanJordanAlgebraSpace,
+    jax_pytree_class,
+)
 
-.. math::
-
-    R_\varepsilon(X)
-    = \varepsilon \operatorname{Tr}[\varphi(X)],
-    \qquad
-    \varphi(t) = t(\log t - 1).
-
-For the separable entropy regularizer, its Legendre transform :math:`\psi` is
-evaluated spectrally on the scaled dual slack
-
-.. math::
-
-    \frac{\mathcal{A}^\dagger y - C}{\varepsilon},
-    \qquad y \in \operatorname{cod}(\mathcal{A}).
-"""
-
-from spacecore import DenseArray, jax_pytree_class
-from ._base import Regularizer
+from ._base import Regularizer, _validate_positive_scalar
 
 
 @jax_pytree_class
 class EntropyReg(Regularizer):
-    r"""Negative von Neumann entropy spectral regularizer.
+    r"""Separable entropy regularizer.
 
-    The scalar convex function is
-
-    .. math::
-
-        \varphi(t) =
-        \begin{cases}
-        t(\log t - 1), & t > 0,\\
-        0, & t = 0,\\
-        +\infty, & t < 0.
-        \end{cases}
-
-    Applied spectrally, it gives
+    This class uses
 
     .. math::
 
-        R_\varepsilon(X)
-        = \varepsilon \operatorname{Tr}[\varphi(X)]
-        = \varepsilon \sum_i \lambda_i(X)(\log \lambda_i(X) - 1).
+        \varphi(t) = t(\log t - 1) + \iota_{[0,\infty)}(t),
 
-    The Legendre transform is
-
-    .. math::
-
-        \psi(s) = \exp(s).
-
-    If :math:`s_i` are the eigenvalues of
-    :math:`\mathcal{A}^\dagger y - C`, then ``primal_from_dual`` uses
-
-    .. math::
-
-        \lambda_i(X) = \psi'(s_i / \varepsilon)
-        = \exp(s_i / \varepsilon),
-
-    optionally normalized by ``SDPRegularized.primal_from_dual``.
-
-    In plain language: entropy regularization turns scaled dual slack
-    eigenvalues into exponential/Gibbs weights.
+    with the convention ``0 * log(0) = 0``. Its scalar conjugate is
+    ``phi_star(s) = exp(s)``.
     """
 
     def phi(self, x: DenseArray) -> DenseArray:
-        r"""Return the extended-value entropy penalty elementwise.
-
-        The value is :math:`x(\log x - 1)` for positive entries, ``0`` at
-        zero, and ``+inf`` for negative entries. The implementation never
-        evaluates ``log`` on nonpositive entries.
-        """
-        ops = self.ctx.ops
-        safe_x = ops.where(x > 0., x, 1.)
-        positive_values = safe_x * (ops.log(safe_x) - 1.)
-        return ops.where(x > 0., positive_values, ops.where(x == 0., 0., ops.inf))
+        r"""Return ``x * (log(x) - 1)`` on the nonnegative domain."""
+        ops = self.ops
+        safe_x = ops.where(x > 0.0, x, 1.0)
+        positive = safe_x * (ops.log(safe_x) - 1.0)
+        return ops.where(
+            x > 0.0,
+            positive,
+            ops.where(x == 0.0, 0.0, ops.inf),
+        )
 
     def phi_star(self, x: DenseArray) -> DenseArray:
-        r"""Return :math:`\psi(x) = \exp(x)` elementwise."""
-        ops = self.ctx.ops
-        return ops.exp(x)
-
-    def log_phi_star_prime(self, x: DenseArray) -> DenseArray:
-        r"""Return :math:`\log(\psi'(x))` elementwise.
-
-        For entropy regularization, :math:`\psi'(x) = \exp(x)`, hence
-        :math:`\log(\psi'(x)) = x`.
-        """
-        return x
+        r"""Return ``exp(x)`` elementwise."""
+        return self.ops.exp(x)
 
     def phi_star_prime(self, x: DenseArray) -> DenseArray:
-        r"""Return :math:`\psi'(x) = \exp(x)` elementwise."""
-        ops = self.ctx.ops
-        return ops.exp(x)
+        r"""Return ``exp(x)`` elementwise."""
+        return self.ops.exp(x)
+
+    def log_phi_star_prime(self, x: DenseArray) -> DenseArray:
+        r"""Return ``log(phi_star_prime(x)) = x`` elementwise."""
+        return x
 
 
 @jax_pytree_class
 class EntropyRegLog(EntropyReg):
-    r"""Trace-normalized entropy variant with coupled logarithmic dual term.
+    r"""Fixed-trace entropy regularizer.
 
-    This regularizer represents the coupled conjugate
+    For ``tau > 0`` this class represents
 
     .. math::
 
-        F^*(X) =
-        \varepsilon \log \operatorname{Tr}\exp(X / \varepsilon),
+        F_\tau(X)
+        =
+        \varepsilon\operatorname{Tr}(X\log X)
+        + \iota_{\{X\succeq0,\ \operatorname{Tr}X=\tau\}}(X).
 
-    not an elementwise scalar :math:`\psi` summed over eigenvalues. If
-    :math:`s_i` are eigenvalues of :math:`X`, then
-    ``legendre(X)`` returns
-    :math:`\varepsilon\log\left(\sum_i \exp(s_i / \varepsilon)\right)`.
+    Its conjugate is
 
-    Its derivative is the normalized exponential spectrum, so matrix gradients
-    are Gibbs states with trace one. This is useful for trace-normalized
-    problems with :math:`\operatorname{Tr}[X] = 1`, such as density-matrix
-    SDPs.
+    .. math::
+
+        F_\tau^*(Y)
+        =
+        \varepsilon\tau
+        \left(
+            \log\operatorname{Tr}\exp(Y/\varepsilon)
+            - \log\tau
+        \right).
+
+    The conjugate gradient is positive semidefinite and has trace ``tau``.
     """
 
-    def phi_star(self, x: DenseArray) -> DenseArray:
-        r"""Reject the misleading elementwise entropy conjugate.
+    def __init__(
+        self,
+        val: DenseArray | float,
+        space: EuclideanJordanAlgebraSpace,
+        ctx: Context | str | None = None,
+        *,
+        tau: DenseArray | float = 1.0,
+    ) -> None:
+        super().__init__(val, space, ctx)
+        self.tau = _validate_positive_scalar(tau, self.ctx)
 
-        ``EntropyRegLog`` represents
-        :math:`\varepsilon\log\operatorname{Tr}\exp(X/\varepsilon)`, whose
-        conjugate term is coupled across all eigenvalues. Use ``legendre`` or
-        ``_phi_star`` for matrix/eigenvalue-vector evaluations.
-        """
-        raise NotImplementedError(
-            "EntropyRegLog has no elementwise phi_star; it represents the "
-            "coupled function eps * log Tr exp(X / eps). Use legendre() or "
-            "_phi_star() on the full spectrum instead."
+    def phi(self, x: DenseArray) -> DenseArray:
+        r"""Return ``x * log(x)`` on the nonnegative domain."""
+        ops = self.ops
+        safe_x = ops.where(x > 0.0, x, 1.0)
+        positive = safe_x * ops.log(safe_x)
+        return ops.where(
+            x > 0.0,
+            positive,
+            ops.where(x == 0.0, 0.0, ops.inf),
         )
 
-    def _phi_star(self, constr_eigvals: DenseArray) -> DenseArray:
-        r"""Return the logarithmic spectral Legendre term.
+    def __call__(self, X: ArrayLike) -> DenseArray:
+        r"""Evaluate the fixed-trace entropy penalty.
 
-        Args:
-            constr_eigvals: Eigenvalues :math:`s_i / \varepsilon` of the scaled
-                dual slack
-                :math:`(\mathcal{A}^\dagger y - C) / \varepsilon`.
-
-        Returns:
-            The value
-            :math:`\log\left(\sum_i \exp(s_i / \varepsilon)\right)`.
+        Inputs outside the fixed-trace domain ``Tr(X) = tau`` receive value
+        ``+inf``. The trace is computed spectrally as the sum of eigenvalues.
         """
-        ops = self.ctx.ops
-        return ops.logsumexp(constr_eigvals)
+        if self.space is None:
+            raise ValueError("Matrix evaluation requires a regularizer space.")
 
-    def log_phi_star_prime(self, x: DenseArray) -> DenseArray:
-        r"""Return log normalized exponential weights for the full spectrum."""
-        ops = self.ctx.ops
-        return x - ops.logsumexp(x)
+        eigvals = self.ops.real(self.space.spectrum(X))
+        value = self.val * self._phi(eigvals)
+        trace = self.ops.sum(eigvals)
+        tau = self.ops.asarray(self.tau)
 
-    def phi_star_prime(self, x: DenseArray) -> DenseArray:
-        r"""Return normalized exponential weights for the full spectrum."""
-        ops = self.ctx.ops
-        return ops.exp(self.log_phi_star_prime(x))
+        # Use a backend-compatible tolerance test. This is intentionally not a
+        # Python bool, so the method remains usable inside compiled code.
+        atol = self.ops.asarray(1e-8)
+        rtol = self.ops.asarray(1e-7)
+        ok = self.ops.abs(trace - tau) <= atol + rtol * self.ops.abs(tau)
+        return self.ops.where(ok, value, self.ops.inf)
+
+    def phi_star(self, x: DenseArray) -> DenseArray:
+        raise NotImplementedError(
+            "EntropyRegLog has no elementwise conjugate; its conjugate is "
+            "coupled across the complete spectrum."
+        )
+
+    def _phi_star(self, eigvals: DenseArray) -> DenseArray:
+        tau = self.ops.asarray(self.tau)
+        return tau * (self.ops.logsumexp(eigvals) - self.ops.log(tau))
+
+    def log_phi_star_prime(self, eigvals: DenseArray) -> DenseArray:
+        tau = self.ops.asarray(self.tau)
+        return self.ops.log(tau) + eigvals - self.ops.logsumexp(eigvals)
+
+    def phi_star_prime(self, eigvals: DenseArray) -> DenseArray:
+        return self.ops.exp(self.log_phi_star_prime(eigvals))
+
+    def _robust_normalization(self, eigvals: DenseArray) -> DenseArray:
+        """Return stable exponential weights summing to ``tau``."""
+        return self.phi_star_prime(eigvals)
+
+    def _convert(self, new_ctx: Context) -> EntropyRegLog:
+        space = self.space.convert(new_ctx) if self.space is not None else None
+        return type(self)(
+            self.val,
+            space,
+            ctx=new_ctx,
+            tau=self.tau,
+        )
+
+    def tree_flatten(self):
+        return (self.val, self.tau), (self.space, self.ctx)
+
+    @classmethod
+    def tree_unflatten(cls, aux, children):
+        val, tau = children
+        space, ctx = aux
+
+        obj = cls.__new__(cls)
+        obj._ctx = ctx
+        obj.space = space
+        obj.val = val
+        obj.tau = tau
+        return obj

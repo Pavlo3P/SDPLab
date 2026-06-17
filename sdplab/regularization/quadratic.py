@@ -8,7 +8,7 @@ regularizer contributes
     R_\varepsilon(X)
     = \varepsilon \operatorname{Tr}[\varphi(X)],
     \qquad
-    \varphi(t) = \frac{t^2}{2} + \iota_{[0,\infty)}(t).
+    \varphi(t) = \frac{t^2}{2}.
 
 Its Legendre transform is applied spectrally to the scaled dual slack
 
@@ -30,11 +30,10 @@ class QuadraticReg(Regularizer):
 
     .. math::
 
-        \varphi(t) = \frac{t^2}{2} + \iota_{[0,\infty)}(t).
+        \varphi(t) = \frac{t^2}{2}.
 
-    The indicator term is zero for :math:`t \ge 0` and :math:`+\infty` for
-    :math:`t < 0`. Since the primal constraint is :math:`X \succeq 0`, this
-    defines the separable spectral penalty
+    Since the primal constraint is :math:`X \succeq 0`, this defines the
+    separable spectral penalty
 
     .. math::
 
@@ -62,19 +61,18 @@ class QuadraticReg(Regularizer):
     """
 
     def phi(self, x: DenseArray) -> DenseArray:
-        r"""Return :math:`x^2 / 2 + \iota_{[0,\infty)}(x)` elementwise."""
-        ops = self.ctx.ops
-        return ops.where(x >= 0., x ** 2 / 2, ops.inf)
+        r"""Return :math:`\varphi(x) = x^2 / 2` elementwise."""
+        return x ** 2 / 2
 
     def phi_star(self, x: DenseArray) -> DenseArray:
         r"""Return :math:`\psi(x) = \max\{x, 0\}^2 / 2` elementwise."""
         ops = self.ctx.ops
-        return ops.maximum(x, ops.asarray(0.)) ** 2 / 2
+        return ops.maximum(x, x * 0) ** 2 / 2
 
     def phi_star_prime(self, x: DenseArray) -> DenseArray:
         r"""Return :math:`\psi'(x) = \max\{x, 0\}` elementwise."""
         ops = self.ctx.ops
-        return ops.maximum(x, ops.asarray(0.))
+        return ops.maximum(x, x * 0)
 
     def log_phi_star_prime(self, x: DenseArray) -> DenseArray:
         r"""Return :math:`\log(\psi'(x))` elementwise.
