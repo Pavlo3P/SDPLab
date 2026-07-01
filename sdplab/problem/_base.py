@@ -83,16 +83,15 @@ def _dispatch_cost(
         matrix_space: EuclideanJordanAlgebraSpace,
         ctx: Context
 ) -> HermitianCost:
+    if not isinstance(matrix_space, HermitianSpace):
+        raise TypeError('Dense cost must have Hermitian space.')
+
     ops = ctx.ops
     if ops.is_dense(C):
         C = ctx.assert_dense(C)
-        if not isinstance(matrix_space, HermitianSpace):
-            raise TypeError('Dense cost must have Hermitian space.')
         return HermitianCost.from_dense(C, matrix_space, ctx)
     elif ops.is_sparse(C):
         C = ctx.assert_sparse(C)
-        if not isinstance(matrix_space, HermitianSpace):
-            raise TypeError('Dense cost must have Hermitian space.')
         return HermitianCost.from_sparse(C, matrix_space, ctx)
     elif isinstance(C, HermitianCost):
         if not (C.matrix_space == matrix_space):
