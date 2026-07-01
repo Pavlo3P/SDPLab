@@ -1,66 +1,10 @@
-r"""Base class for separable spectral regularizers for SDPs.
+r"""Base class for spectral regularizers for SDPs.
 
-The base SDP supplies a cost matrix
-:math:`C \in \operatorname{dom}(\mathcal{A})`, a linear operator
-:math:`\mathcal{A} : \operatorname{dom}(\mathcal{A}) \to
-\operatorname{cod}(\mathcal{A})`, and constraint RHS
-:math:`b \in \operatorname{cod}(\mathcal{A})`.
-
-A spectral regularizer acts on a primal matrix only through its eigenvalues.
-For
-
-.. math::
-
-    X = V \operatorname{diag}(\lambda) V^\dagger
-    \in \operatorname{dom}(\mathcal{A}),
-
-and regularization strength :math:`\varepsilon > 0`, the lifted penalty is
-
-.. math::
-
-    R_\varepsilon(X)
-    = \varepsilon \operatorname{Tr}[\varphi(X)]
-    = \varepsilon \sum_i \varphi(\lambda_i).
-
-The Legendre transform of :math:`\varphi` is denoted by :math:`\psi`:
-
-.. math::
-
-    \psi(s) = \sup_t \{s t - \varphi(t)\}.
-
-The dual regularization term evaluates :math:`\psi` spectrally at the scaled
-matrix
-
-.. math::
-
-    \frac{\mathcal{A}^\dagger y - C}{\varepsilon},
-    \qquad y \in \operatorname{cod}(\mathcal{A}),
-
-and returns
-
-.. math::
-
-    \varepsilon \operatorname{Tr}\left[
-        \psi\left(\frac{\mathcal{A}^\dagger y - C}{\varepsilon}\right)
-    \right].
-
-To implement a new regularizer, define the four scalar operations:
-
-    phi:
-        The scalar penalty :math:`\varphi` applied to primal eigenvalues.
-    phi_star:
-        The Legendre transform :math:`\psi` applied to scaled dual-slack
-        eigenvalues.
-    phi_star_prime:
-        The derivative :math:`\psi'` used to recover primal eigenvalues from
-        scaled dual-slack eigenvalues.
-    log_phi_star_prime:
-        The same derivative in log form for numerically stable normalization.
+... (docstring unchanged) ...
 """
 from __future__ import annotations
 
-from math import isfinite
-from typing import Tuple
+from typing import Any, Callable, Tuple
 from abc import abstractmethod
 from dataclasses import dataclass
 
@@ -71,214 +15,213 @@ from spacecore import (
     jax_pytree_class,
     ContextBound,
     EuclideanJordanAlgebraSpace,
-    resolve_context_priority,
+    TreeSpace,
+    TreeSpectralDecomposition,
+    resolve_context_priority
 )
 
+from ._eval_space import create_eigval_space
 
-def _validate_positive_scalar(
-    val: DenseArray | float,
-    ctx: Context,
-) -> float:
-    """Convert ``val`` to ``ctx`` and validate that it is a positive real scalar."""
-    value = ctx.asarray(val)
-
-    if tuple(value.shape) != ():
-        raise ValueError(
-            f"Expected a scalar value, got shape {value.shape}."
-        )
-
-    dtype = ctx.ops.get_dtype(value)
-    if ctx.ops.is_complex_dtype(dtype):
-        raise TypeError(
-            "Expected a real scalar value."
-        )
-
-    value = float(value)
-    if not isfinite(value) or value <= 0.0:
-        raise ValueError(
-            f"Expected a finite strictly positive value, got {value}."
-        )
-
-    return value
+_UNSET = object()
+SpaceElement = Any
 
 
 @jax_pytree_class
 @dataclass(init=False)
 class Regularizer(ContextBound):
-    r"""Base class for scalar spectral regularizers.
+    r"""Base class for scalar spectral regularizers.  ... (docstring unchanged) ..."""
 
-    Subclasses define:
-
-        phi(t): scalar convex penalty :math:`\varphi(t)`,
-        phi_star(s): Legendre transform :math:`\psi(s)`,
-        phi_star_prime(s): derivative :math:`\psi'(s)`,
-        log_phi_star_prime(s): logarithm :math:`\log(\psi'(s))`.
-
-    The base class lifts these one-dimensional formulas to matrices through
-    the spectral calculus. If
-    :math:`X \in \operatorname{dom}(\mathcal{A})` has eigenvalues
-    :math:`\lambda_i(X)`, then
-
-    .. math::
-
-        \operatorname{Tr}[\varphi(X)]
-        = \sum_i \varphi(\lambda_i(X)).
-
-    If :math:`\mathcal{A}^\dagger y - C` has eigenvalues :math:`s_i`, then
-    the transformed dual regularization term is
-
-    .. math::
-
-        \varepsilon \operatorname{Tr}\left[
-            \psi\left(\frac{\mathcal{A}^\dagger y - C}{\varepsilon}\right)
-        \right]
-        = \varepsilon \sum_i \psi(s_i / \varepsilon).
-
-    This abstraction keeps the SDP code independent of the concrete choice of
-    :math:`\varphi`, for example entropy or a quadratic penalty.
-    """
-
-    def __init__(self,
-                 val: DenseArray | float,
-                 space: EuclideanJordanAlgebraSpace,
-                 ctx: Context | str | None = None):
-        r"""Create a regularizer with strength :math:`\varepsilon = \texttt{val}`.
-
-        Larger :math:`\varepsilon` makes the spectral penalty more influential.
-        Smaller :math:`\varepsilon` makes the model closer to the original
-        unregularized SDP.
-        """
-        ctx = resolve_context_priority(ctx, space, val)
+    def __init__(
+        self,
+        space: EuclideanJordanAlgebraSpace,
+        ctx: Context | str | None = None,
+    ):
+        ctx = resolve_context_priority(ctx, space)
         super(Regularizer, self).__init__(ctx)
-
+        if space is None:
+            raise ValueError("Regularizer requires a domain space.")
         if not space.is_euclidean:
             raise NotImplementedError(
-                "Regularization currently supports only Euclidean matrix spaces."
+                "Regularization currently supports only Euclidean Jordan spaces."
             )
+        self.space: EuclideanJordanAlgebraSpace = space.convert(self.ctx)
+        self.eigval_space = create_eigval_space(self.space)
 
-        self.val = _validate_positive_scalar(val, ctx)
-        self.space = space.convert(ctx)
-
+    # ---- scalar spectral operations (subclass contract) ---------------------
     @abstractmethod
     def phi(self, x: DenseArray) -> DenseArray:
-        r"""Evaluate the scalar convex penalty :math:`\varphi` elementwise.
-
-        The input represents eigenvalues :math:`\lambda_i(X)` of a primal
-        matrix :math:`X \in \operatorname{dom}(\mathcal{A})`.
-        """
+        r"""Scalar convex penalty :math:`\varphi` applied to primal eigenvalues."""
 
     @abstractmethod
     def phi_star(self, x: DenseArray) -> DenseArray:
-        r"""Evaluate the Legendre transform :math:`\psi` elementwise.
-
-        The input represents scaled eigenvalues
-        :math:`s_i / \varepsilon` of
-        :math:`\mathcal{A}^\dagger y - C`.
-        """
+        r"""Legendre transform :math:`\psi` applied to scaled slack eigenvalues."""
 
     @abstractmethod
     def phi_star_prime(self, x: DenseArray) -> DenseArray:
-        r"""Evaluate :math:`\psi'(x)` elementwise.
-
-        This derivative converts scaled dual-slack eigenvalues
-        :math:`s_i / \varepsilon` into primal eigenvalues
-        :math:`\lambda_i(X)` during primal recovery.
-        """
+        r"""Derivative :math:`\psi'` recovering primal eigenvalues."""
 
     @abstractmethod
     def log_phi_star_prime(self, x: DenseArray) -> DenseArray:
-        r"""Evaluate :math:`\log(\psi'(x))` elementwise.
+        r"""Log-form :math:`\log\psi'` for stable normalization."""
 
-        Use this form when :math:`\psi'(s_i / \varepsilon)` may overflow or
-        underflow before normalization.
+    # ---- structure-safe spectral plumbing -----------------------------------
+    def _eigvals(self, X: SpaceElement) -> SpaceElement:
+        """Eigenvalues of ``X`` as a member of ``self.eigval_space`` (no frame).
+
+        On trees this reduces per leaf instead of via ``TreeSpace.spectrum``,
+        which concatenates leaf spectra along the last axis and fails when leaves
+        have different spectrum rank (e.g. a stacked leaf).
         """
+        space = self.space
+        if isinstance(space, TreeSpace):
+            parts = tuple(
+                leaf.spectrum(component)
+                for leaf, component in zip(space.leaf_spaces, space._components(X))
+            )
+            return self.eigval_space.unflatten_tree(parts)
+        return space.spectrum(X)
 
-    def _phi(self, eigvals: DenseArray) -> DenseArray:
-        r"""Return :math:`\operatorname{Tr}[\varphi(X)]` for primal eigenvalues.
+    def _decompose(self, X: SpaceElement) -> Tuple[SpaceElement, Any]:
+        """Return ``(eigvals, recon)`` — eigenvalues as an ``eigval_space`` member
+        plus the opaque frame data that ``_reconstruct`` needs."""
+        space = self.space
+        decomposition = space.spectral_decompose(X)
+        if isinstance(space, TreeSpace):
+            # TreeSpace returns a TreeSpectralDecomposition, not an (evals, frame) pair.
+            eigvals = self.eigval_space.unflatten_tree(decomposition.eigvals)
+            return eigvals, decomposition
+        eigvals, frame = decomposition
+        return eigvals, frame
 
-        Args:
-            eigvals: Eigenvalues :math:`\lambda_i(X)` of a matrix :math:`X`.
+    def _reconstruct(self, eigvals: SpaceElement, recon: Any) -> SpaceElement:
+        """Rebuild a ``self.space`` element from transformed eigenvalues."""
+        space = self.space
+        if isinstance(space, TreeSpace):
+            recon = TreeSpectralDecomposition(
+                eigvals=self.eigval_space.flatten_tree(eigvals),
+                frames=recon.frames,
+            )
+            return space.from_spectrum(recon)
+        return space.from_spectrum(eigvals, recon)
 
-        Returns:
-            The spectral trace
-            :math:`\operatorname{Tr}[\varphi(X)] = \sum_i \varphi(\lambda_i(X))`.
-        """
-        phi_eigvals = self.phi(eigvals)
-        return self.ops.sum(phi_eigvals)
+    def _trace(self, eigvals: SpaceElement) -> DenseArray:
+        """Additive sum of every eigenvalue across the (structured) eigval space."""
+        return self.ops.sum(self.eigval_space.flatten(eigvals))
 
-    def _phi_star(self, eigvals: DenseArray) -> DenseArray:
-        r"""Return :math:`\operatorname{Tr}[\varphi^*(X)]` for primal eigenvalues.
-
-        Args:
-            eigvals: Eigenvalues :math:`\lambda_i(X)` of a matrix :math:`X`.
-
-        Returns:
-            The spectral trace
-            :math:`\operatorname{Tr}[\varphi^*(X)] = \sum_i \varphi^*(\lambda_i(X))`.
-        """
-        phi_star_eigvals = self.phi_star(eigvals)
-        return self.ops.sum(phi_star_eigvals)
-
-    def __call__(self, X: ArrayLike) -> DenseArray:
+    # ---- public API ---------------------------------------------------------
+    def __call__(self, X: SpaceElement, val: float) -> DenseArray:
         r"""Evaluate :math:`\varepsilon \operatorname{Tr}[\varphi(X)]`."""
-        eigvals = self.ops.real(self.space.spectrum(X))
-        return self.val * self._phi(eigvals)
+        eigvals = self._eigvals(X)
+        eigvals = self.eigval_space.spectral_apply(eigvals, self.phi)
+        return self._trace(eigvals) * val
 
-    def legendre(self, X: ArrayLike) -> DenseArray:
-        r"""Evaluate :math:`\varepsilon \operatorname{Tr}[\varphi^*(X / \varepsilon)]`."""
-        eigvals = self.ops.real(self.space.spectrum(X))
-        return self.val * self._phi_star(eigvals / self.val)
+    def legendre(self, X: SpaceElement, val: float) -> DenseArray:
+        r"""Evaluate :math:`\varepsilon \operatorname{Tr}[\psi(X/\varepsilon)]`."""
+        eigvals = self._eigvals(X)
+        eigvals = self.eigval_space.scale(1.0 / val, eigvals)
+        eigvals = self.eigval_space.spectral_apply(eigvals, self.phi_star)
+        return self._trace(eigvals) * val
 
-    def _convert(self, new_ctx: Context) -> Regularizer:
+    def legendre_and_grad(
+        self, X: SpaceElement, val: float, normalized: bool = False
+    ) -> Tuple[DenseArray, SpaceElement]:
+        eigvals, recon = self._decompose(X)
+        scaled = self.eigval_space.scale(1.0 / val, eigvals)
+        legendre = self._trace(self.eigval_space.spectral_apply(scaled, self.phi_star)) * val
+        if normalized:
+            grad_eigvals = self._robust_normalization(scaled)
+        else:
+            grad_eigvals = self.eigval_space.spectral_apply(scaled, self.phi_star_prime)
+        return legendre, self._reconstruct(grad_eigvals, recon)
+
+    def phi_star_prime_matrix(
+        self, X: ArrayLike, val: float, normalized: bool = True
+    ) -> ArrayLike:
+        r"""Return the primal matrix :math:`(\varphi^*)'(X / \varepsilon)`."""
+        eigvals, recon = self._decompose(X)
+        scaled = self.eigval_space.scale(1.0 / val, eigvals)
+        if normalized:
+            grad_eigvals = self._robust_normalization(scaled)
+        else:
+            grad_eigvals = self.eigval_space.spectral_apply(scaled, self.phi_star_prime)
+        return self._reconstruct(grad_eigvals, recon)
+
+    def _robust_normalization(self, eigvals: SpaceElement) -> SpaceElement:
+        r"""Softmax of :math:`\log\psi'(s_i/\varepsilon)`; the recovered element
+        has unit trace. ``eigvals`` holds the already-scaled slack eigenvalues.
+
+        The log-sum-exp is a *global* reduction over the whole spectrum, computed
+        on the flattened vector — routing it through ``spectral_apply`` would
+        raise, since that method forbids shape-reducing maps. Only the final
+        ``exp`` is entrywise.
+        """
+        log_psi_prime = self.eigval_space.spectral_apply(eigvals, self.log_phi_star_prime)
+        lse = self.ops.logsumexp(self.eigval_space.flatten(log_psi_prime), axis=-1)
+        return self.eigval_space.spectral_apply(
+            log_psi_prime, lambda ev: self.ops.exp(ev - lse)
+        )
+
+    # ---- context / copy / pytree -------------------------------------------
+    def _convert(self, new_ctx: Context) -> "Regularizer":
         """Return this regularizer represented in ``new_ctx``."""
-        return type(self)(self.val, self.space.convert(new_ctx), ctx=new_ctx)
+        return self._copy_with(ctx=new_ctx)
 
-    def phi_star_prime_matrix(self, X: ArrayLike, normalized: bool = True) -> ArrayLike:
-        r"""
-        Return (\varphi^*)'(X / \varepsilon) matrix.
-        """
-        eigvals, eigvecs = self.space.spectral_decompose(X)
-        eigvals = eigvals / self.val
-        if normalized:
-            eigvals = self._robust_normalization(eigvals)
-        else:
-            eigvals = self.phi_star_prime(eigvals)
-        return self.space.from_spectrum(eigvals, eigvecs)
+    def with_space(self, space: EuclideanJordanAlgebraSpace) -> "Regularizer":
+        return self._copy_with(space=space, ctx=space.ctx)
 
-    def legendre_and_grad(self, X: ArrayLike, normalized: bool = False) -> Tuple[DenseArray, ArrayLike]:
-        eigvals, eigvecs = self.space.spectral_decompose(X)
-        eigvals = self.ops.real(eigvals) / self.val
-        legendre =  self.val * self._phi_star(eigvals)
-        if normalized:
-            phi_star_prime_eigvals = self._robust_normalization(eigvals)
-        else:
-            phi_star_prime_eigvals = self.phi_star_prime(eigvals)
-        phi_star_prime_X = self.space.from_spectrum(phi_star_prime_eigvals, eigvecs)
+    def _extra_dynamic_children(self) -> Tuple[Any, ...]:
+        """Return subclass backend-array PyTree children."""
+        return ()
 
-        return legendre, phi_star_prime_X
+    def _extra_static_aux(self) -> Tuple[Any, ...]:
+        """Return subclass static PyTree auxiliary state."""
+        return ()
 
-    def _robust_normalization(self, eigvals: DenseArray) -> DenseArray:
-        r"""Normalize :math:`\log(\psi'(s_i / \varepsilon))` with log-sum-exp.
+    def _restore_extra_state(
+        self, dynamic_children: Tuple[Any, ...], static_aux: Tuple[Any, ...]
+    ) -> None:
+        """Restore subclass state from PyTree/copy hooks."""
 
-        Here ``eigvals`` stores the scaled slack eigenvalues
-        :math:`s_i / \varepsilon` from :math:`\mathcal{A}^\dagger y - C`.
-        """
-        log_phi_sp = self.log_phi_star_prime(eigvals)
-        lse = self.ops.logsumexp(log_phi_sp)
-        normalized = self.ops.exp(log_phi_sp - lse)
-        return normalized
+    def _convert_extra_dynamic_children(
+        self, dynamic_children: Tuple[Any, ...], new_ctx: Context
+    ) -> Tuple[Any, ...]:
+        return tuple(new_ctx.ops.asarray(child) for child in dynamic_children)
+
+    def _copy_with(
+        self,
+        *,
+        space: EuclideanJordanAlgebraSpace | object = _UNSET,
+        ctx: Context | None = None,
+    ) -> "Regularizer":
+        new_space = self.space if space is _UNSET else space
+        new_ctx = self.ctx if ctx is None else ctx
+
+        obj = type(self).__new__(type(self))
+        obj.space = new_space.convert(new_ctx)
+        obj._ctx = obj.space.ctx                       # normalized Context
+        obj.eigval_space = create_eigval_space(obj.space)
+
+        extra_dynamic = self._extra_dynamic_children()
+        if obj._ctx != self.ctx:
+            extra_dynamic = self._convert_extra_dynamic_children(extra_dynamic, obj._ctx)
+        obj._restore_extra_state(extra_dynamic, self._extra_static_aux())
+        return obj
 
     def tree_flatten(self):
-        """Return children and auxiliary data for JAX PyTree flattening."""
-        return (self.val,), (self.space, self.ctx)
+        """Children are subclass dynamic arrays; ε is a per-call argument, not state."""
+        return self._extra_dynamic_children(), (
+            self.space,
+            self.ctx,
+            self._extra_static_aux(),
+        )
 
     @classmethod
     def tree_unflatten(cls, aux, children):
         """Rebuild a regularizer from JAX PyTree data."""
-        (reg,) = children
-        (space, ctx) = aux
+        space, ctx, extra_static = aux
         obj = cls.__new__(cls)
         obj._ctx = ctx
         obj.space = space
-        obj.val = reg
+        obj.eigval_space = create_eigval_space(space)   # was missing before
+        obj._restore_extra_state(tuple(children), extra_static)
         return obj

@@ -8,7 +8,7 @@ regularizer contributes
     R_\varepsilon(X)
     = \varepsilon \operatorname{Tr}[\varphi(X)],
     \qquad
-    \varphi(t) = \frac{t^2}{2}.
+    \varphi(t) = \frac{t^2}{2} + \iota_{[0,\infty)}(t).
 
 Its Legendre transform is applied spectrally to the scaled dual slack
 
@@ -30,10 +30,11 @@ class QuadraticReg(Regularizer):
 
     .. math::
 
-        \varphi(t) = \frac{t^2}{2}.
+        \varphi(t) = \frac{t^2}{2} + \iota_{[0,\infty)}(t).
 
-    Since the primal constraint is :math:`X \succeq 0`, this defines the
-    separable spectral penalty
+    The indicator term is zero for :math:`t \ge 0` and :math:`+\infty` for
+    :math:`t < 0`. Since the primal constraint is :math:`X \succeq 0`, this
+    defines the separable spectral penalty
 
     .. math::
 
@@ -61,18 +62,19 @@ class QuadraticReg(Regularizer):
     """
 
     def phi(self, x: DenseArray) -> DenseArray:
-        r"""Return :math:`\varphi(x) = x^2 / 2` elementwise."""
-        return x ** 2 / 2
+        r"""Return :math:`x^2 / 2 + \iota_{[0,\infty)}(x)` elementwise."""
+        ops = self.ctx.ops
+        return ops.where(x >= 0., x ** 2 / 2, float("inf"))
 
     def phi_star(self, x: DenseArray) -> DenseArray:
         r"""Return :math:`\psi(x) = \max\{x, 0\}^2 / 2` elementwise."""
         ops = self.ctx.ops
-        return ops.maximum(x, x * 0) ** 2 / 2
+        return ops.maximum(x, 0.) ** 2 / 2
 
     def phi_star_prime(self, x: DenseArray) -> DenseArray:
         r"""Return :math:`\psi'(x) = \max\{x, 0\}` elementwise."""
         ops = self.ctx.ops
-        return ops.maximum(x, x * 0)
+        return ops.maximum(x, 0.)
 
     def log_phi_star_prime(self, x: DenseArray) -> DenseArray:
         r"""Return :math:`\log(\psi'(x))` elementwise.
@@ -81,4 +83,5 @@ class QuadraticReg(Regularizer):
         with :math:`-\infty` on nonpositive entries.
         """
         ops = self.ctx.ops
-        return ops.where(x > 0., ops.log(x), -ops.inf)
+        safe = ops.where(x > 0., x, 1.)
+        return ops.where(x > 0., ops.log(safe), float("-inf"))
