@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Any, Tuple
 from abc import abstractmethod
 
-from spacecore import ArrayLike, Space, Context, ContextBound, resolve_context_priority
+from spacecore import ArrayLike, InnerProductSpace, Context, ContextBound, resolve_context_priority
 
 
 class SDPVar(ContextBound):
@@ -33,7 +33,7 @@ class SDPVar(ContextBound):
     
     def __init__(
         self,
-        space: Space,
+        space: InnerProductSpace,
         ctx: Context | str | None = None,
     ):
         """Bind this variable to its mathematical ``space`` and backend context."""

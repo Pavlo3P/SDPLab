@@ -17,7 +17,7 @@ matrix and :math:`X \succeq 0` means positive semidefinite.
 from __future__ import annotations
 
 from typing import Tuple
-from spacecore import Space, jax_pytree_class, Context, ArrayLike, DenseArray
+from spacecore import EuclideanJordanAlgebraSpace, jax_pytree_class, Context, ArrayLike, DenseArray
 from ._base import SDPVar
 
 @jax_pytree_class
@@ -42,11 +42,14 @@ class SDPPrimal(SDPVar):
 
     def __init__(
         self,
-        space: Space,
+        space: EuclideanJordanAlgebraSpace,
         X: ArrayLike,
         ctx: Context | str | None = None,
     ):
         r"""Create a primal variable by validating :math:`X \in \operatorname{dom}(\mathcal{A})`."""
+        if not isinstance(space, EuclideanJordanAlgebraSpace):
+            raise TypeError("space must be an instance of JordanAlgebraSpace.")
+
         super(SDPPrimal, self).__init__(space, ctx)
         self.space.check_member(X)
         self.X = self.space.ctx.asarray(X)
@@ -63,18 +66,14 @@ class SDPPrimal(SDPVar):
         r"""Return another primal variable in the same space :math:`\operatorname{dom}(\mathcal{A})`."""
         return SDPPrimal(self.space, new_val)
 
-    def eigh(self, k: int | None = None) -> Tuple[DenseArray, ArrayLike]:
+    def eigh(self) -> Tuple[DenseArray, ArrayLike]:
         r"""Return eigenvalues and eigenvectors of the matrix represented by :math:`X`.
 
         For :math:`X = V \operatorname{diag}(\lambda)V^\dagger`, this returns
         :math:`\lambda` and :math:`V`. The optional ``k`` is forwarded to the
         space-specific eigensolver.
         """
-        eigvals, eigvecs = self.space.spectral_decompose(self.X)
-        if k is not None:
-            eigvals = eigvals[..., :k]
-            eigvecs = eigvecs[..., :, :k]
-        return eigvals, eigvecs
+        return self.space.spectral_decompose(self.X)
 
     def tree_flatten(self):
         """Return children and auxiliary data for JAX PyTree flattening."""

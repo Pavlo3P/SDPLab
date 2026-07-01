@@ -11,7 +11,7 @@ matrix object used by dual feasibility and regularized primal recovery.
 from __future__ import annotations
 
 
-from spacecore import Space, jax_pytree_class, Context, ArrayLike
+from spacecore import InnerProductSpace, jax_pytree_class, Context, ArrayLike
 from ._base import SDPVar
 
 
@@ -40,11 +40,14 @@ class SDPDual(SDPVar):
 
     def __init__(
             self,
-            space: Space,
+            space: InnerProductSpace,
             y: ArrayLike,
             ctx: Context | str | None = None,
     ):
         r"""Create a dual variable by validating :math:`y \in \operatorname{cod}(\mathcal{A})`."""
+        if not isinstance(space, InnerProductSpace):
+            raise TypeError("space must be an InnerProductSpace.")
+
         super(SDPDual, self).__init__(space, ctx)
         self.space.check_member(y)
         self.y = self.space.ctx.asarray(y)
