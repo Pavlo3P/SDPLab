@@ -6,12 +6,12 @@ import numpy as np
 import cvxpy as cp
 
 from spacecore import Context, NumpyOps
-from sdplab.sdp import SDPDenseProblem, SDPPrimal, SDPDual
-from ._block_space import BlockMatrixSpace
+from ...problem import SDPProblem, HermitianCost
+from ...variables import SDPPrimal, SDPDual
 from ._constraint_op import QOTConstraintOp
 
 def solve_qot_dual(
-    qot: SDPDenseProblem,
+    qot: SDPProblem,
     solver: str = 'MOSEK',
     verbose: bool = False,
     *args, **kwargs
@@ -56,7 +56,7 @@ def solve_qot_dual(
         :math:`\operatorname{cod}(\mathcal{A})`.
     """
 
-    if not (isinstance(qot.A, QOTConstraintOp) or isinstance(qot.cod, BlockMatrixSpace)):
+    if not isinstance(qot.A, QOTConstraintOp):
         raise TypeError("Input problem is not Quantum Optimal Transport.")
 
     np_ctx = Context(ops=NumpyOps(), dtype=qot.ctx.dtype)

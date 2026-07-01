@@ -1,58 +1,6 @@
-r"""Linear algebra helpers for quantum optimal transport constraints.
-
-These functions implement the two matrix operations behind the QOT constraint
-operator :math:`\mathcal{A}`:
-
-.. math::
-
-    \mathcal{A}\Gamma
-    =
-    (\operatorname{Tr}^k[\Gamma])_k,
-    \qquad
-    \mathcal{A}^\dagger y
-    =
-    y_0 \oplus \cdots \oplus y_{N-1}
-    =
-    \sum_k I \otimes \cdots \otimes y_k \otimes \cdots \otimes I.
-
-Here :math:`\Gamma \in \operatorname{dom}(\mathcal{A}) = \operatorname{Herm}(d^N)`
-and :math:`y \in \operatorname{cod}(\mathcal{A}) = \operatorname{Herm}(d)^N`.
-"""
-
 from typing import Tuple, Sequence
 
 from spacecore import DenseArray, Context
-from sdplab.linalg import kron_all
-
-
-def kron_sum(ctx: Context, blocks: DenseArray) -> DenseArray:
-    r"""Return :math:`\mathcal{A}^\dagger y` for one-body blocks ``blocks``.
-
-    If ``blocks[k]`` represents :math:`y_k \in \operatorname{Herm}(d)`, then
-    ``blocks`` represents
-    :math:`y = (y_0, \ldots, y_{N-1}) \in \operatorname{cod}(\mathcal{A})`.
-    The result is the matrix in :math:`\operatorname{dom}(\mathcal{A})`
-
-    .. math::
-
-        \mathcal{A}^\dagger y
-        =
-        y_0 \oplus \cdots \oplus y_{N-1}
-        =
-        \sum_k I \otimes \cdots \otimes y_k \otimes \cdots \otimes I.
-    """
-    ops = ctx.ops
-    dtype = ctx.dtype
-
-    N, d = blocks.shape[:2]
-    I = ops.eye(d, dtype=dtype)
-    D = d ** N
-    K = ops.zeros((D, D), dtype=dtype)
-    for k in range(N):
-        factors = [I] * N
-        factors[k] = blocks[k]
-        K = K + kron_all(ctx, factors)
-    return K
 
 
 def make_perm(i: int, N: int) -> Tuple[int, ...]:

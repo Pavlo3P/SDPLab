@@ -10,8 +10,9 @@ from typing import Optional, Tuple
 import numpy as np
 
 from spacecore import Context, NumpyOps
-from .._constraint_op import QOTConstraintOp
-from ....sdp import SDPDenseProblem, SDPPrimal
+from ...special.qot import QOTConstraintOp
+from ...problem import SDPProblem
+from ...variables import SDPPrimal
 
 
 def generate_random_qot(
@@ -22,7 +23,7 @@ def generate_random_qot(
         rtol: float = 0.0,
         enforce_herm: bool = True,
         ctx: Context | str | None = None
-) -> Tuple[SDPDenseProblem, SDPPrimal]:
+) -> Tuple[SDPProblem, SDPPrimal]:
     r"""
     Generate a random dense QOT instance together with a feasible primal state.
 
@@ -108,7 +109,7 @@ def generate_random_qot(
     marginals = qot_op.apply(Gamma)
 
     # Define QOT problem & convert to target ctx
-    qot = SDPDenseProblem(cost_matrix, qot_op, marginals, ctx=np_ctx)
+    qot = SDPProblem(cost_matrix, qot_op, marginals, ctx=np_ctx)
     qot = qot.convert(ctx)
 
     # Wrap example state into SDPPrimal
