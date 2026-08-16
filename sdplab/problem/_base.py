@@ -1,4 +1,4 @@
-r"""Abstract base class for semidefinite programming problems.
+r"""Conic problem data over a Euclidean Jordan algebra.
 
 This module uses the following mathematical model for an SDP. The base data
 are a cost element :math:`C \in \operatorname{dom}(\mathcal{A})`, a linear
@@ -14,15 +14,18 @@ they define the primal problem
 
 .. math::
 
-    \min_{X \in \operatorname{dom}(\mathcal{A})}\ &\operatorname{Tr}[C X] \\
+    \min_{X \in \operatorname{dom}(\mathcal{A})}\ &\langle C, X\rangle \\
     \text{s.t.}\quad &\mathcal{A}X = b, \\
                  &X \succeq 0.
 
-In the usual dense case, :math:`\operatorname{dom}(\mathcal{A})` is the real
-space of symmetric matrices or the complex space of Hermitian matrices. The
-objective element :math:`C` and the primal variable :math:`X` both belong to
-:math:`\operatorname{dom}(\mathcal{A})`. The expression :math:`X \succeq 0`
-means that :math:`X` is positive semidefinite in the Loewner order.
+The domain is any Euclidean Jordan algebra space: the dense space of
+symmetric or Hermitian matrices (classic SDP), an elementwise Jordan space
+(linear programming over the nonnegative orthant), or a
+:class:`~spacecore.TreeSpace` of such leaves (block-structured problems).
+The pairing :math:`\langle C, X\rangle` is the domain inner product — the
+trace pairing :math:`\operatorname{Tr}[C X]` in the Hermitian case — and
+:math:`X \succeq 0` means the spectrum of :math:`X` is nonnegative in the
+Jordan-algebraic sense.
 
 The value :math:`\mathcal{A}X` and the right-hand side :math:`b` both lie in
 :math:`\operatorname{cod}(\mathcal{A})`. If
@@ -39,25 +42,19 @@ adjoint operator
     \to \operatorname{dom}(\mathcal{A})
 
 is defined by
-
-.. math::
-
-    \operatorname{Tr}[(\mathcal{A}X)y]
-    =
-    \operatorname{Tr}[X(\mathcal{A}^\dagger y)].
-
-The expression :math:`\mathcal{A}^\dagger y - C` is the dual slack expression
-used by this package's dual and regularized-dual routines.
+:math:`\langle \mathcal{A}X, y\rangle = \langle X, \mathcal{A}^\dagger y\rangle`.
+The expression :math:`\mathcal{A}^\dagger y - C` is the dual slack used by
+this package's dual and regularized-dual routines.
 
 Practical checklist:
 
-    1. Decide what the matrix variable :math:`X` is. This determines
+    1. Decide what the conic variable :math:`X` is. This determines
        :math:`\operatorname{dom}(\mathcal{A})`.
     2. Decide what numbers, vectors, or blocks must equal prescribed values.
        This determines :math:`\operatorname{cod}(\mathcal{A})` and :math:`b`.
     3. Implement or build a linear operator :math:`\mathcal{A}` that computes
        those quantities from :math:`X`.
-    4. Put the cost matrix in :math:`C`.
+    4. Put the cost element in :math:`C`.
     5. The problem is represented by the triple :math:`(C, \mathcal{A}, b)`.
 """
 
@@ -67,50 +64,110 @@ from dataclasses import dataclass
 from typing import Any
 
 from spacecore import (
-    ArrayLike, Context, Space,
+    ArrayLike, Context,
     ContextBound, resolve_context_priority,
-    EuclideanJordanAlgebraSpace,
-    HermitianSpace, InnerProductSpace,
+    DenseLinOp, SparseLinOp,
+    EuclideanJordanAlgebraSpace, HermitianSpace,
+    InnerProductSpace, TreeElement, TreeSpace,
+    jax_pytree_class,
 )
 from spacecore.linop import LinOp
 
-from ._hermitian import HermitianCost
-from ..variables import SDPPrimal, SDPDual
+from ._constraint import (
+    ConstraintOp,
+    DenseConstraintOp,
+    SparseConstraintOp,
+    WrappedConstraintOp,
+)
+from ._cost import Cost, ElementCost, HermitianCost
+
+
+def as_member(space: InnerProductSpace, x: Any, ctx: Context) -> Any:
+    """Return ``x`` as a raw member of ``space`` represented in ``ctx``.
+
+    Accepts backend arrays, array-likes, raw trees, and bound
+    :class:`~spacecore.TreeElement` values; validates membership according to
+    the context's check level.
+    """
+    if isinstance(x, TreeElement):
+        x = x.value
+    if isinstance(space, TreeSpace):
+        # Structural flatten, then move each leaf onto the target backend;
+        # convert_element would validate the leaves before converting them.
+        leaves = space.flatten_tree(x)
+        x = space.unflatten_tree(tuple(ctx.asarray(leaf) for leaf in leaves))
+    else:
+        if ctx.ops.is_sparse(x):
+            raise TypeError(
+                "Sparse data is not supported here; densify it first "
+                "(e.g. ops.to_dense)."
+            )
+        x = ctx.asarray(x)
+    space.check_member(x)
+    return x
 
 
 def _dispatch_cost(
-        C: Any,
-        matrix_space: EuclideanJordanAlgebraSpace,
-        ctx: Context
-) -> HermitianCost:
-    if not isinstance(matrix_space, HermitianSpace):
-        raise TypeError('Dense cost must have Hermitian space.')
+    C: Any,
+    domain: EuclideanJordanAlgebraSpace,
+    ctx: Context,
+) -> Cost:
+    """Wrap ``C`` as a :class:`Cost` on ``domain``.
 
-    ops = ctx.ops
-    if ops.is_dense(C):
-        C = ctx.assert_dense(C)
-        return HermitianCost.from_dense(C, matrix_space, ctx)
-    elif ops.is_sparse(C):
-        C = ctx.assert_sparse(C)
-        return HermitianCost.from_sparse(C, matrix_space, ctx)
-    elif isinstance(C, HermitianCost):
-        if not (C.matrix_space == matrix_space):
-            raise TypeError('Linear operator domain and HermitianCost matrix domain should coincide.')
-        return C.convert(ctx)
-    else:
-        raise TypeError('Unknown cost type.')
+    A pre-built :class:`Cost` is converted and checked against the domain;
+    dense/sparse matrices on a Hermitian domain become operator-backed
+    Hermitian costs; anything else (including raw trees) becomes an
+    :class:`ElementCost`.
+    """
+    if isinstance(C, Cost):
+        C = C.convert(ctx)
+        if not (C.space == domain):
+            raise TypeError(
+                "Cost space and linear operator domain must coincide."
+            )
+        return C
+    if isinstance(domain, HermitianSpace):
+        if ctx.ops.is_sparse(C):
+            return HermitianCost.from_sparse(ctx.assparse(C), domain, ctx)
+        return HermitianCost.from_dense(ctx.asarray(C), domain, ctx)
+    return ElementCost(C, domain, ctx)
 
 
+def _dispatch_constraint(A: LinOp, ctx: Context) -> ConstraintOp:
+    """Resolve a user-supplied constraint operator into a :class:`ConstraintOp`.
+
+    A pre-built :class:`~sdplab.problem.ConstraintOp` (including the QOT
+    operator) is converted and returned. A stored-tensor
+    :class:`~spacecore.DenseLinOp` / :class:`~spacecore.SparseLinOp` is wrapped
+    in the matching constraint operator. Any other :class:`~spacecore.LinOp`
+    (e.g. a hand-written matrix-free operator) is wrapped by delegation and
+    stays matrix-free; its per-constraint matrices are materialized lazily, only
+    if the cvxpy backend asks for them.
+    """
+    if isinstance(A, ConstraintOp):
+        return A.convert(ctx)
+    if isinstance(A, DenseLinOp):
+        return DenseConstraintOp.from_linop(A.convert(ctx))
+    if isinstance(A, SparseLinOp):
+        return SparseConstraintOp.from_linop(A.convert(ctx))
+    if isinstance(A, LinOp):
+        return WrappedConstraintOp.from_linop(A.convert(ctx))
+    raise TypeError(
+        f"SDPProblem requires a LinOp constraint operator; got {type(A).__name__}."
+    )
+
+
+@jax_pytree_class
 @dataclass(init=False)
 class SDPProblem(ContextBound):
-    r"""Base representation of an SDP with linear equality constraints.
+    r"""Base representation of a conic problem with linear equality constraints.
 
     An instance stores the triple :math:`(C, \mathcal{A}, b)` from the
-    standard primal SDP
+    standard primal problem
 
     .. math::
 
-        \min_{X \in \operatorname{dom}(\mathcal{A})}\ &\operatorname{Tr}[C X] \\
+        \min_{X \in \operatorname{dom}(\mathcal{A})}\ &\langle C, X\rangle \\
         \text{s.t.}\quad &\mathcal{A}X = b, \\
                      &X \succeq 0.
 
@@ -118,13 +175,9 @@ class SDPProblem(ContextBound):
     operator is
     :math:`\mathcal{A} : \operatorname{dom}(\mathcal{A}) \to
     \operatorname{cod}(\mathcal{A})`, and
-    :math:`b \in \operatorname{cod}(\mathcal{A})`. A primal variable
-    :math:`X \in \operatorname{dom}(\mathcal{A})` is represented by
-    ``SDPPrimal`` and a dual variable
-    :math:`y \in \operatorname{cod}(\mathcal{A})` is represented by
-    ``SDPDual``. Concrete subclasses specify how :math:`\operatorname{Tr}[C X]`
-    is evaluated and how to diagonalize the dual slack expression
-    :math:`\mathcal{A}^\dagger y - C`.
+    :math:`b \in \operatorname{cod}(\mathcal{A})`. Both :math:`C` and
+    :math:`b` are stored as plain elements of their spaces; primal and dual
+    variables are likewise plain elements of ``dom`` and ``cod``.
 
     Think of this class as the common language between modeling code and
     solvers. It does not decide which algorithm to use. It only stores the
@@ -132,17 +185,19 @@ class SDPProblem(ContextBound):
     """
 
     def __init__(self,
-                 C: HermitianCost | ArrayLike,
+                 C: Cost | ArrayLike,
                  A: LinOp,
                  b: ArrayLike,
                  ctx: Context | str | None = None,
                  ):
-        r"""Create the SDP data :math:`(C, \mathcal{A}, b)`.
+        r"""Create the problem data :math:`(C, \mathcal{A}, b)`.
 
         Args:
-            C: Objective element in :math:`\operatorname{dom}(\mathcal{A})`.
-                For matrix SDPs this is a symmetric or Hermitian matrix with
-                the same shape as :math:`X`.
+            C: Objective in :math:`\operatorname{dom}(\mathcal{A})` — a
+                prepared :class:`~sdplab.problem.Cost`, a dense or sparse
+                matrix on a Hermitian domain, or a plain domain element (a
+                tree of blocks on a tree domain). Arrays are wrapped through
+                :func:`_dispatch_cost`.
             A: Linear constraint operator
                 :math:`\mathcal{A} : \operatorname{dom}(\mathcal{A}) \to
                 \operatorname{cod}(\mathcal{A})`.
@@ -161,79 +216,84 @@ class SDPProblem(ContextBound):
         super(SDPProblem, self).__init__(ctx)
 
         if not isinstance(A.dom, EuclideanJordanAlgebraSpace):
-            raise TypeError()
+            raise TypeError(
+                "SDPProblem requires a EuclideanJordanAlgebraSpace domain; "
+                f"got {type(A.dom).__name__}."
+            )
         if not A.dom.is_euclidean:
             raise NotImplementedError(
-                "SDP problem currently supports only Euclidean matrix spaces."
+                "SDPProblem currently supports only Euclidean domains."
             )
         if not isinstance(A.cod, InnerProductSpace):
-            raise TypeError()
+            raise TypeError(
+                "SDPProblem requires an InnerProductSpace codomain; "
+                f"got {type(A.cod).__name__}."
+            )
         if not A.cod.is_euclidean:
             raise NotImplementedError(
-                "SDP problem currently supports only Euclidean matrix spaces."
+                "SDPProblem currently supports only Euclidean codomains."
             )
 
-        self.A = A.convert(ctx)
-        self.A.cod.check_member(b)
-        self.C = _dispatch_cost(C, A.dom, ctx)
-        self.b = self.dual_from_array(b)
+        self.A = _dispatch_constraint(A, ctx)
+        self.C = _dispatch_cost(C, self.A.dom, ctx)
+        self.b = as_member(self.A.cod, b, ctx)
 
     @property
-    def dom(self) -> Space:
-        r"""Return :math:`\operatorname{dom}(\mathcal{A})`, the primal space containing :math:`C` and :math:`X`.
-
-        In a dense real SDP, this is usually the space of symmetric
-        :math:`n \times n` matrices. In a dense complex SDP, it is usually the
-        space of Hermitian :math:`n \times n` matrices.
-        """
+    def dom(self) -> EuclideanJordanAlgebraSpace:
+        r"""Return :math:`\operatorname{dom}(\mathcal{A})`, the primal space containing :math:`C` and :math:`X`."""
         return self.A.dom
 
     @property
-    def cod(self) -> Space:
-        r"""Return :math:`\operatorname{cod}(\mathcal{A})`, the space containing :math:`\mathcal{A}X`, :math:`b`, and :math:`y`.
-
-        If the SDP has :math:`m` scalar equality constraints,
-        :math:`\operatorname{cod}(\mathcal{A})` is typically a vector space of
-        shape ``(m,)``. Structured problems may use product or block spaces
-        instead.
-        """
+    def cod(self) -> InnerProductSpace:
+        r"""Return :math:`\operatorname{cod}(\mathcal{A})`, the space containing :math:`\mathcal{A}X`, :math:`b`, and :math:`y`."""
         return self.A.cod
 
-    def primal_objective(self, primal: SDPPrimal) -> float:
-        r"""Evaluate the primal objective :math:`\operatorname{Tr}[C X]`.
+    def primal_objective(self, X: Any) -> Any:
+        r"""Evaluate the primal objective :math:`\langle C, X\rangle` at a ``dom`` element.
 
         In dense symmetric or Hermitian matrix spaces this is the trace
         objective :math:`\operatorname{Re}\operatorname{Tr}[C X]`.
         """
-        raise self.ops.real(self.C.inner(primal.X))
+        return self.C.inner(X)
 
-    def dual_objective(self, dual: SDPDual) -> float:
-        r"""Evaluate the linear dual objective term :math:`\operatorname{Tr}[b\ y]` in :math:`\operatorname{cod}(\mathcal{A})`."""
-        return self.ops.real(self.b.inner(dual))
+    def dual_objective(self, y: Any) -> Any:
+        r"""Evaluate the linear dual objective term :math:`\langle b, y\rangle` at a ``cod`` element."""
+        return self.ops.real(self.cod.inner(self.b, y))
 
-    def A_apply(self, primal: SDPPrimal) -> SDPDual:
-        r"""Return :math:`\mathcal{A}X` wrapped as an ``SDPDual``-space value.
+    def dual_slack(self, y: Any) -> Any:
+        r"""Return the dual slack :math:`\mathcal{A}^\dagger y - C` in ``dom``."""
+        return self.dom.axpy(-1.0, self.C.element, self.A.rapply(y))
 
-        Use this to check equality feasibility: a primal candidate :math:`X` is
-        feasible for the affine constraints when ``A_apply(X).y`` equals
-        :math:`b` in :math:`\operatorname{cod}(\mathcal{A})`.
+    def feasibility_gap(self, X: Any) -> Any:
+        r"""Return :math:`\mathcal{A}X - b`, the equality-constraint residual in ``cod``."""
+        return self.cod.axpy(-1.0, self.b, self.A.apply(X))
+
+    def _convert(self, new_ctx: Context) -> SDPProblem:
+        """Return an equivalent problem with data represented in ``new_ctx``.
+
+        ``C`` and ``b`` are re-validated against the converted spaces by the
+        constructor; the constructor's ``as_member`` moves them onto
+        ``new_ctx`` first.
         """
-        return self.dual_from_array(self.A.apply(primal.X))
+        return SDPProblem(self.C, self.A, self.b, new_ctx)
 
-    def AT_apply(self, dual: SDPDual) -> SDPPrimal:
-        r"""Return :math:`\mathcal{A}^\dagger y` wrapped as an ``SDPPrimal``-space value.
+    def tree_flatten(self):
+        """Children are the array-bearing cost, operator, and RHS; ctx is static.
 
-        The adjoint :math:`\mathcal{A}^\dagger` is taken with respect to the
-        inner products of :math:`\operatorname{dom}(\mathcal{A})` and
-        :math:`\operatorname{cod}(\mathcal{A})`. It moves dual variables back
-        into the matrix space where they can be compared with :math:`C`.
+        The cost ``C``, operator ``A``, and RHS ``b`` flow through as pytree
+        leaves. Reconstruction restores them directly (no re-validation),
+        keeping the round-trip safe under tracing.
         """
-        return self.primal_from_array(self.A.rapply(dual.y))
+        return (self.C, self.A, self.b), (self.ctx,)
 
-    def dual_from_array(self, array: ArrayLike) -> SDPDual:
-        r"""Interpret ``array`` in :math:`\operatorname{cod}(\mathcal{A})` as a dual variable :math:`y`."""
-        return SDPDual(self.cod, array, ctx=self.ctx)
-
-    def primal_from_array(self, array: ArrayLike) -> SDPPrimal:
-        r"""Interpret ``array`` in :math:`\operatorname{dom}(\mathcal{A})` as a primal variable :math:`X`."""
-        return SDPPrimal(self.dom, array, ctx=self.ctx)
+    @classmethod
+    def tree_unflatten(cls, aux, children):
+        """Rebuild a problem from JAX PyTree data without re-running validation."""
+        C, A, b = children
+        (ctx,) = aux
+        obj = cls.__new__(cls)
+        ContextBound.__init__(obj, ctx)
+        obj.C = C
+        obj.A = A
+        obj.b = b
+        return obj
