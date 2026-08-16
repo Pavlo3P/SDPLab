@@ -1,7 +1,4 @@
-r"""Base class for spectral regularizers for SDPs.
-
-... (docstring unchanged) ...
-"""
+r"""Base class for spectral regularizers for SDPs."""
 from __future__ import annotations
 
 from typing import Any, Callable, Tuple
@@ -25,11 +22,19 @@ from ._eval_space import create_eigval_space
 _UNSET = object()
 SpaceElement = Any
 
+#: Eigenvalues in ``[-NEG_EIG_TOL, 0)`` are treated as round-off from the
+#: spectral decomposition and evaluated at ``0``; anything below is genuinely
+#: outside :math:`\operatorname{dom}\varphi` and gives ``+inf``. Every
+#: :meth:`Regularizer.phi` carries the domain indicator
+#: :math:`\iota_{[0,\infty)}` this way, so that ``phi`` stays the Fenchel
+#: partner of the ``phi_star`` its subclass defines.
+NEG_EIG_TOL = 1e-12
+
 
 @jax_pytree_class
 @dataclass(init=False)
 class Regularizer(ContextBound):
-    r"""Base class for scalar spectral regularizers.  ... (docstring unchanged) ..."""
+    r"""Base class for scalar spectral regularizers."""
 
     def __init__(
         self,
@@ -68,17 +73,15 @@ class Regularizer(ContextBound):
     def _eigvals(self, X: SpaceElement) -> SpaceElement:
         """Eigenvalues of ``X`` as a member of ``self.eigval_space`` (no frame).
 
-        On trees this reduces per leaf instead of via ``TreeSpace.spectrum``,
-        which concatenates leaf spectra along the last axis and fails when leaves
-        have different spectrum rank (e.g. a stacked leaf).
+        On trees this uses the structured spectrum (a treedef-shaped pytree of
+        per-leaf eigenvalue arrays) instead of the default flat concatenation,
+        which fails when leaves have different spectrum rank (e.g. a stacked
+        leaf). The structured spectrum is directly a raw member of
+        ``eigval_space``, whose treedef matches ``space``.
         """
         space = self.space
         if isinstance(space, TreeSpace):
-            parts = tuple(
-                leaf.spectrum(component)
-                for leaf, component in zip(space.leaf_spaces, space._components(X))
-            )
-            return self.eigval_space.unflatten_tree(parts)
+            return space.spectrum(X, structured=True)
         return space.spectrum(X)
 
     def _decompose(self, X: SpaceElement) -> Tuple[SpaceElement, Any]:
@@ -116,22 +119,32 @@ class Regularizer(ContextBound):
         return self._trace(eigvals) * val
 
     def legendre(self, X: SpaceElement, val: float) -> DenseArray:
-        r"""Evaluate :math:`\varepsilon \operatorname{Tr}[\psi(X/\varepsilon)]`."""
-        eigvals = self._eigvals(X)
-        eigvals = self.eigval_space.scale(1.0 / val, eigvals)
-        eigvals = self.eigval_space.spectral_apply(eigvals, self.phi_star)
-        return self._trace(eigvals) * val
+        r"""Evaluate the smoothed dual term of the regularizer."""
+        scaled = self.eigval_space.scale(1.0 / val, self._eigvals(X))
+        return self._trace(self.eigval_space.spectral_apply(scaled, self.phi_star)) * val
+
+    def _log_partition(self, scaled: SpaceElement) -> DenseArray:
+        r"""Return :math:`\log \operatorname{Tr}\exp(\log\psi'(\text{scaled}))`,
+        a global log-sum-exp over the whole (structured) spectrum."""
+        log_g = self.eigval_space.spectral_apply(scaled, self.log_phi_star_prime)
+        return self.ops.logsumexp(self.eigval_space.flatten(log_g), axis=-1)
 
     def legendre_and_grad(
         self, X: SpaceElement, val: float, normalized: bool = False
     ) -> Tuple[DenseArray, SpaceElement]:
+        r"""Return ``(legendre(X, val), gradient)``.
+
+        The gradient is the recovered primal eigenvalues: the free
+        :math:`\psi'(X/\varepsilon)` when ``normalized=False``, or the
+        unit-trace :meth:`_robust_normalization` when ``normalized=True``.
+        """
         eigvals, recon = self._decompose(X)
         scaled = self.eigval_space.scale(1.0 / val, eigvals)
-        legendre = self._trace(self.eigval_space.spectral_apply(scaled, self.phi_star)) * val
         if normalized:
-            grad_eigvals = self._robust_normalization(scaled)
+            grad_eigvals = self._grad_robust_normalization(scaled)
         else:
             grad_eigvals = self.eigval_space.spectral_apply(scaled, self.phi_star_prime)
+        legendre = self._trace(self.eigval_space.spectral_apply(scaled, self.phi_star)) * val
         return legendre, self._reconstruct(grad_eigvals, recon)
 
     def phi_star_prime_matrix(
@@ -141,32 +154,29 @@ class Regularizer(ContextBound):
         eigvals, recon = self._decompose(X)
         scaled = self.eigval_space.scale(1.0 / val, eigvals)
         if normalized:
-            grad_eigvals = self._robust_normalization(scaled)
+            grad_eigvals = self._grad_robust_normalization(scaled)
         else:
             grad_eigvals = self.eigval_space.spectral_apply(scaled, self.phi_star_prime)
         return self._reconstruct(grad_eigvals, recon)
 
-    def _robust_normalization(self, eigvals: SpaceElement) -> SpaceElement:
-        r"""Softmax of :math:`\log\psi'(s_i/\varepsilon)`; the recovered element
-        has unit trace. ``eigvals`` holds the already-scaled slack eigenvalues.
-
-        The log-sum-exp is a *global* reduction over the whole spectrum, computed
-        on the flattened vector — routing it through ``spectral_apply`` would
-        raise, since that method forbids shape-reducing maps. Only the final
-        ``exp`` is entrywise.
-        """
-        log_psi_prime = self.eigval_space.spectral_apply(eigvals, self.log_phi_star_prime)
-        lse = self.ops.logsumexp(self.eigval_space.flatten(log_psi_prime), axis=-1)
+    def _grad_robust_normalization(self, scaled: SpaceElement) -> SpaceElement:
+        r"""Return the unit-trace normalization of the gradient eigenvalues
+        :math:`g_i = \psi'(s_i/\varepsilon)`, i.e. :math:`g_i / \sum_j g_j`,
+        computed as :math:`\operatorname{softmax}(\log\psi'(s_i/\varepsilon))`
+        directly from the scaled slack eigenvalues ``scaled`` (:math:`= s/\varepsilon`)."""
+        ops = self.ops
+        log_g = self.eigval_space.spectral_apply(scaled, self.log_phi_star_prime)
+        lse = ops.logsumexp(self.eigval_space.flatten(log_g), axis=-1)
         return self.eigval_space.spectral_apply(
-            log_psi_prime, lambda ev: self.ops.exp(ev - lse)
+            log_g, lambda ev: ops.exp(ev - lse)
         )
 
     # ---- context / copy / pytree -------------------------------------------
-    def _convert(self, new_ctx: Context) -> "Regularizer":
+    def _convert(self, new_ctx: Context) -> Regularizer:
         """Return this regularizer represented in ``new_ctx``."""
         return self._copy_with(ctx=new_ctx)
 
-    def with_space(self, space: EuclideanJordanAlgebraSpace) -> "Regularizer":
+    def with_space(self, space: EuclideanJordanAlgebraSpace) -> Regularizer:
         return self._copy_with(space=space, ctx=space.ctx)
 
     def _extra_dynamic_children(self) -> Tuple[Any, ...]:
@@ -192,7 +202,7 @@ class Regularizer(ContextBound):
         *,
         space: EuclideanJordanAlgebraSpace | object = _UNSET,
         ctx: Context | None = None,
-    ) -> "Regularizer":
+    ) -> Regularizer:
         new_space = self.space if space is _UNSET else space
         new_ctx = self.ctx if ctx is None else ctx
 

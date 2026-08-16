@@ -19,7 +19,7 @@ Its Legendre transform is applied spectrally to the scaled dual slack
 """
 
 from spacecore import DenseArray, jax_pytree_class
-from ._base import Regularizer
+from ._base import NEG_EIG_TOL, Regularizer
 
 
 @jax_pytree_class
@@ -62,9 +62,14 @@ class QuadraticReg(Regularizer):
     """
 
     def phi(self, x: DenseArray) -> DenseArray:
-        r"""Return :math:`x^2 / 2 + \iota_{[0,\infty)}(x)` elementwise."""
+        r"""Return :math:`x^2 / 2 + \iota_{[0,\infty)}(x)` elementwise.
+
+        Round-off-negative eigenvalues (down to ``-NEG_EIG_TOL``) evaluate at
+        the limit :math:`\varphi(0)=0` rather than out of domain.
+        """
         ops = self.ctx.ops
-        return ops.where(x >= 0., x ** 2 / 2, float("inf"))
+        safe = ops.maximum(x, 0.)
+        return ops.where(x >= -NEG_EIG_TOL, safe ** 2 / 2, float("inf"))
 
     def phi_star(self, x: DenseArray) -> DenseArray:
         r"""Return :math:`\psi(x) = \max\{x, 0\}^2 / 2` elementwise."""
