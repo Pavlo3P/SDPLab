@@ -8,11 +8,35 @@ version = "0.0.1"
 description = "Tools for constructing and solving regularized semidefinite programming problems."
 readme = "README.md"
 requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [
+  { name = "Pavlo Pelikh" }
+]
 dependencies = [
     "numpy",
     "scipy",
     "cvxpy",
     "spacecore>=0.4.2,<0.5",
+]
+
+keywords = [
+  "semidefinite-programming",
+  "conic-optimization",
+  "convex-optimization",
+  "regularization",
+  "quantum",
+  "jax",
+  "numpy",
+]
+
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Mathematics",
 ]
 
 [project.optional-dependencies]
