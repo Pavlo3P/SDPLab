@@ -49,8 +49,7 @@ from .regularization import (
     RegularizedSDPDualFunctional,
     Regularizer,
 )
-
-__version__ = "0.0.1"
+from ._version import __version__
 
 # Solvers pull in CVXPY (~1.2s), making an optional backend a hard requirement
 # for anyone who only builds problems. PEP 562 keeps them reachable as
