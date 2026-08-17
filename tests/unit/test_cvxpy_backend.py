@@ -81,10 +81,17 @@ def test_qot_generic_backend_matches_dedicated_dual_solver():
     X, y = run_cvxpy_solver(qot, solver="CLARABEL")
     prim_ref, dual_ref = solve_qot_dual(qot, solver="CLARABEL")
 
+    # Two *different* formulations of the same SDP, each solved to CLARABEL's
+    # default tolerance -- the per-constraint encoding and the bespoke dual --
+    # so agreement is bounded by solver accuracy, not by the encoding. CLARABEL
+    # reports "solution may be inaccurate" on the dedicated solve on some
+    # platforms, where the objectives differ by ~6e-4. The regression this
+    # guards against (a doubled primal) was off by 1.3, a thousand times wider.
     assert np.isclose(
         float(qot.primal_objective(X)),
         float(qot.primal_objective(prim_ref)),
-        atol=1e-5,
+        rtol=1e-3,
+        atol=1e-3,
     )
     assert np.allclose(np.asarray(y), np.asarray(dual_ref), atol=1e-3)
 
