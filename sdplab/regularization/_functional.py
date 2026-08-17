@@ -59,13 +59,14 @@ class RegularizedSDPDualFunctional(Functional):
     ) -> Any:
         r"""Return :math:`D_\varepsilon(y)` for strength ``eps_val``.
 
-        ``normalized`` selects the unit-trace primal recovery, which affects
-        only the gradient; it is accepted here so ``value`` and ``grad`` share
-        a call surface. The trailing ``*args``/``**kwargs`` keep this
+        ``normalized`` selects the fixed-trace conjugate, so it changes the
+        objective itself and not only the recovered primal -- it must match the
+        flag used for :meth:`grad`/:meth:`value_and_grad`, which is what
+        :meth:`bind` guarantees. The trailing ``*args``/``**kwargs`` keep this
         compatible with :class:`~spacecore.Functional` (``__call__``).
         """
         dual_val = self.problem.dual_objective(y)
-        return dual_val - self.regularizer.legendre(self.slack(y), eps_val)
+        return dual_val - self.regularizer.legendre(self.slack(y), eps_val, normalized)
 
     def value_and_grad(
         self, y: Any, eps_val: float, normalized: bool = False, *args: Any, **kwargs: Any

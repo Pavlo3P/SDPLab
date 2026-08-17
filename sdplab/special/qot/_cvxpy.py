@@ -96,10 +96,9 @@ def solve_qot_dual(
     if U[0].value is None:
         raise ValueError(f'{solver} solver did not return a solution.')
 
-    Gamma_val = np.asarray(constraints[0].dual_value)
-    if np.iscomplexobj(Gamma_val):
-        Gamma_val = Gamma_val * 2.
-    primal = qot.ctx.asarray(Gamma_val)
+    # The dual of the PSD constraint is the coupling itself; cvxpy returns it
+    # already correctly scaled for a complex Hermitian cone, so it is used as is.
+    primal = qot.ctx.asarray(np.asarray(constraints[0].dual_value))
 
     dual = qot.ctx.asarray(np.stack([np.asarray(Uk.value) for Uk in U], axis=0))
 

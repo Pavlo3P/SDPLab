@@ -52,3 +52,22 @@ class EntropyReg(Regularizer):
         r"""Return :math:`\psi'(x) = \exp(x)` elementwise."""
         ops = self.ctx.ops
         return ops.exp(x)
+
+    def _normalized_legendre(self, scaled: DenseArray, val: float) -> DenseArray:
+        r"""Return the fixed-trace conjugate
+        :math:`\varepsilon\big(\log\operatorname{Tr}e^{S/\varepsilon} + 1\big)`.
+
+        Because :math:`\log\psi'(x) = x` is affine, the chemical potential is
+        available in closed form: :math:`\sum_i e^{(s_i-\theta)/\varepsilon} = 1`
+        gives :math:`\theta = \varepsilon\log\sum_i e^{s_i/\varepsilon}`, and
+        substituting into
+        :math:`\theta + \varepsilon\operatorname{Tr}\psi((S-\theta)/\varepsilon)`
+        leaves the trailing term equal to :math:`\varepsilon` exactly. That
+        constant is what makes this the conjugate of the *same*
+        :math:`\varphi(t) = t(\log t - 1)` that :meth:`phi` uses -- the
+        :math:`-t` contributes :math:`-\varepsilon` on the unit-trace face -- so
+        primal and dual values here form a Fenchel pair and duality gaps come
+        out right. It does not affect the gradient, which is the Gibbs state
+        :math:`\operatorname{softmax}(S/\varepsilon)`.
+        """
+        return (self._log_partition(scaled) + 1.0) * val

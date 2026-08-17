@@ -118,9 +118,22 @@ class Regularizer(ContextBound):
         eigvals = self.eigval_space.spectral_apply(eigvals, self.phi)
         return self._trace(eigvals) * val
 
-    def legendre(self, X: SpaceElement, val: float) -> DenseArray:
-        r"""Evaluate the smoothed dual term of the regularizer."""
+    def legendre(
+        self, X: SpaceElement, val: float, normalized: bool = False
+    ) -> DenseArray:
+        r"""Evaluate the smoothed dual term of the regularizer.
+
+        ``normalized=False`` is the *free* separable conjugate
+        :math:`\varepsilon \operatorname{Tr}[\psi(X/\varepsilon)]`, whose
+        gradient is :math:`\psi'(X/\varepsilon)` with whatever trace that
+        implies. ``normalized=True`` is the *fixed-trace* conjugate, the
+        supremum taken over unit-trace primals only, whose gradient is the
+        unit-trace recovery. The two are different functions, not two scalings
+        of one: see :meth:`_normalized_legendre`.
+        """
         scaled = self.eigval_space.scale(1.0 / val, self._eigvals(X))
+        if normalized:
+            return self._normalized_legendre(scaled, val)
         return self._trace(self.eigval_space.spectral_apply(scaled, self.phi_star)) * val
 
     def _log_partition(self, scaled: SpaceElement) -> DenseArray:
@@ -129,22 +142,53 @@ class Regularizer(ContextBound):
         log_g = self.eigval_space.spectral_apply(scaled, self.log_phi_star_prime)
         return self.ops.logsumexp(self.eigval_space.flatten(log_g), axis=-1)
 
+    def _normalized_legendre(self, scaled: SpaceElement, val: float) -> DenseArray:
+        r"""Return the fixed-trace conjugate, in the units of the free one.
+
+        This is the value whose gradient is :meth:`_grad_robust_normalization`,
+        so that :meth:`legendre_and_grad` returns a genuine value/gradient pair.
+        It exists in closed form only for the entropy family, and the base class
+        therefore refuses rather than returning a plausible wrong number.
+
+        The trace constraint carries a multiplier that enters *additively in the
+        argument*, :math:`X = \psi'((S - \theta)/\varepsilon)` with
+        :math:`\theta` solving :math:`\sum_i \psi'((s_i - \theta)/\varepsilon) = 1`,
+        giving :math:`\theta + \varepsilon \operatorname{Tr}\psi((S-\theta)/\varepsilon)`.
+        A shift acts as a global rescale -- making that collapse to a
+        log-sum-exp, and making :meth:`_grad_robust_normalization`'s softmax the
+        correct argmax -- exactly when :math:`\log\psi'` is affine. For every
+        other :math:`\psi` the softmax is a unit-trace element but not the
+        fixed-trace maximizer, so no value has it as a gradient.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} has no closed-form fixed-trace conjugate: "
+            "its unit-trace normalization is a rescaling, not the constrained "
+            "maximizer, so no value has it as a gradient. Only the entropy "
+            "family (affine log-psi') supports normalized=True; use "
+            "normalized=False here, or phi_star_prime_matrix(normalized=True) "
+            "if you only need a unit-trace primal to report."
+        )
+
     def legendre_and_grad(
         self, X: SpaceElement, val: float, normalized: bool = False
     ) -> Tuple[DenseArray, SpaceElement]:
-        r"""Return ``(legendre(X, val), gradient)``.
+        r"""Return ``(legendre(X, val, normalized), gradient)``.
 
-        The gradient is the recovered primal eigenvalues: the free
-        :math:`\psi'(X/\varepsilon)` when ``normalized=False``, or the
-        unit-trace :meth:`_robust_normalization` when ``normalized=True``.
+        A genuine value/gradient pair in both modes: the free conjugate with
+        :math:`\psi'(X/\varepsilon)`, or the fixed-trace conjugate with the
+        unit-trace recovery. Optimizers that line-search on the value therefore
+        descend the function they are evaluating either way.
         """
         eigvals, recon = self._decompose(X)
         scaled = self.eigval_space.scale(1.0 / val, eigvals)
         if normalized:
+            legendre = self._normalized_legendre(scaled, val)
             grad_eigvals = self._grad_robust_normalization(scaled)
         else:
+            legendre = self._trace(
+                self.eigval_space.spectral_apply(scaled, self.phi_star)
+            ) * val
             grad_eigvals = self.eigval_space.spectral_apply(scaled, self.phi_star_prime)
-        legendre = self._trace(self.eigval_space.spectral_apply(scaled, self.phi_star)) * val
         return legendre, self._reconstruct(grad_eigvals, recon)
 
     def phi_star_prime_matrix(
