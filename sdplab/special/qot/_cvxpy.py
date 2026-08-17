@@ -5,9 +5,10 @@ from __future__ import annotations
 import numpy as np
 import cvxpy as cp
 
+from typing import Any
+
 from spacecore import Context, NumpyOps
-from ...problem import SDPProblem, HermitianCost
-from ...variables import SDPPrimal, SDPDual
+from ...problem import SDPProblem
 from ._constraint_op import QOTConstraintOp
 
 def solve_qot_dual(
@@ -15,7 +16,7 @@ def solve_qot_dual(
     solver: str = 'MOSEK',
     verbose: bool = False,
     *args, **kwargs
-) -> tuple[SDPPrimal, SDPDual]:
+) -> tuple[Any, Any]:
     r"""Solve the QOT dual SDP.
 
     For the QOT constraint operator :math:`\mathcal{A}`, the primal coupling
@@ -62,8 +63,8 @@ def solve_qot_dual(
     np_ctx = Context(ops=NumpyOps(), dtype=qot.ctx.dtype)
     problem = qot.convert(np_ctx)
 
-    C = cp.Constant(qot.C)
-    marginals = qot.b
+    C = cp.Constant(np.asarray(problem.C.to_dense()))
+    marginals = np.asarray(problem.b)
 
     d = problem.A.d
     N = problem.A.N
@@ -95,15 +96,11 @@ def solve_qot_dual(
     if U[0].value is None:
         raise ValueError(f'{solver} solver did not return a solution.')
 
-    Gamma_val = problem.A.dom.ctx.ops.asarray(constraints[0].dual_value, dtype=problem.A.dom.ctx.dtype)
+    Gamma_val = np.asarray(constraints[0].dual_value)
     if np.iscomplexobj(Gamma_val):
-        Gamma_val *= 2.
-    primal = qot.primal_from_array(Gamma_val)
+        Gamma_val = Gamma_val * 2.
+    primal = qot.ctx.asarray(Gamma_val)
 
-    u_vals = problem.A.cod.ctx.ops.stack(
-        [problem.A.cod.ctx.ops.asarray(Uk.value, dtype=problem.A.cod.ctx.dtype) for Uk in U],
-        axis=0
-    )
-    dual = qot.dual_from_array(u_vals)
+    dual = qot.ctx.asarray(np.stack([np.asarray(Uk.value) for Uk in U], axis=0))
 
     return primal, dual

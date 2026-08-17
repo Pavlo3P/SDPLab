@@ -34,13 +34,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from spacecore import DenseArray, HermitianSpace, SparseArray, StackedSpace, jax_pytree_class, Context, LinOp, checked_method
+from spacecore import DenseArray, HermitianSpace, SparseArray, StackedSpace, jax_pytree_class, Context, checked_method
 
 from ...linalg import kron_sum
 from ...linalg.dense._ptrace import make_perm, _compute_ptraces
+from ...problem import MatrixFreeConstraintOp
 
 @jax_pytree_class
-class QOTConstraintOp(LinOp[HermitianSpace, StackedSpace]):
+class QOTConstraintOp(MatrixFreeConstraintOp):
     r"""Partial-trace operator :math:`\mathcal{A}` for quantum optimal transport.
 
     This is the linear map
@@ -112,7 +113,7 @@ class QOTConstraintOp(LinOp[HermitianSpace, StackedSpace]):
         The ``k``-th block is
         :math:`(\mathcal{A}\Gamma)_k = \operatorname{Tr}^k[\Gamma]`.
         """
-        return _compute_ptraces(self.dom.ctx, X, d=self.d, N=self.N, perms=self.perms)
+        return _compute_ptraces(self.ctx, X, d=self.d, N=self.N, perms=self.perms)
 
     @checked_method(in_space="codomain", out_space="domain")
     def rapply(self, y: DenseArray) -> Any:
@@ -137,9 +138,71 @@ class QOTConstraintOp(LinOp[HermitianSpace, StackedSpace]):
             \operatorname{Tr}[(\mathcal{A}\Gamma)y]
             =
             \operatorname{Tr}[\Gamma(\mathcal{A}^\dagger y)].
+
+        The decorator already asserts codomain membership on entry and domain
+        membership on exit, so no explicit check is repeated here.
         """
-        self.cod.check_member(y)
-        return kron_sum(self.cod.ctx, y)
+        return kron_sum(self.ctx, y)
+
+    def _site_index(self, k: int):
+        r"""Return ``(base, right)`` for subsystem ``k``.
+
+        A ``D``-index splits as ``(l, s_k, r)`` with ``l < d^k`` the higher
+        subsystems, ``s_k < d`` the kept one, and ``r < d^{N-1-k}`` the lower
+        ones. ``base`` enumerates every ``(l, r)`` pair as the flat ``D``-index
+        with ``s_k = 0``, so ``base + s * right`` is the index with
+        ``s_k = s``. The ``d^{N-1}`` entries of ``base`` are exactly the
+        configurations traced over at site ``k``.
+        """
+        import numpy as np
+
+        d, N = self.d, self.N
+        block = d ** (N - k)          # stride of subsystem k in a D-index
+        right = d ** (N - 1 - k)      # d-index stride of subsystem k
+        left = d ** k                 # number of higher-subsystem configs
+        hi = np.arange(left)[:, None]
+        lo = np.arange(right)[None, :]
+        return (hi * block + lo).ravel(), right
+
+    def to_sparse(self) -> SparseArray:
+        r"""Materialize :math:`\mathcal{A}` as a sparse coordinate matrix.
+
+        The shape is ``(prod(cod.shape), prod(dom.shape)) = (N d^2, d^{2N})``,
+        matching :meth:`~spacecore.LinOp.to_matrix`: row :math:`(k, a, b)` is
+        the flattened tensor slice reading off :math:`\operatorname{Tr}^k` at
+        marginal entry :math:`(a, b)`,
+
+        .. math::
+
+            (\mathcal{A}\Gamma)_{k,ab}
+            = \sum_{l,r} \Gamma_{(l,a,r),(l,b,r)},
+
+        so that row carries exactly :math:`d^{N-1}` unit entries -- the
+        configurations of the traced-out subsystems. Storage is therefore
+        :math:`N d^{N+1}` nonzeros instead of the :math:`N d^{2N+2}` of the
+        dense form. The base class raises ``NotImplementedError`` here; the
+        partial trace is a 0/1 incidence matrix, so it is worth providing.
+        """
+        import numpy as np
+        from scipy.sparse import coo_matrix
+
+        d, N = self.d, self.N
+        D = d ** N
+        rows, cols = [], []
+        for k in range(N):
+            base, right = self._site_index(k)
+            for a in range(d):
+                for b in range(d):
+                    row = (k * d + a) * d + b          # flat cod coordinate
+                    R = base + a * right               # bra keeps subsystem k = a
+                    C = base + b * right               # ket keeps subsystem k = b
+                    rows.append(np.full(R.shape, row))
+                    cols.append(R * D + C)             # flat dom coordinate
+        rows = np.concatenate(rows)
+        cols = np.concatenate(cols)
+        data = np.ones(rows.shape, dtype=self.dtype)
+        coo = coo_matrix((data, (rows, cols)), shape=(N * d * d, D * D))
+        return self.ctx.assparse(coo)
 
     def tree_flatten(self):
         """Return children and auxiliary data for JAX PyTree flattening."""
@@ -192,15 +255,15 @@ class QOTConstraintOp(LinOp[HermitianSpace, StackedSpace]):
                 if complex_ctx:
                     yield [(i, j, 0.5j), (j, i, -0.5j)], ("im", i, j)
 
-    def to_sparse(self) -> SparseArray:
-        r"""Return the QOT constraints as a real-SDP sparse constraint stack.
+    def to_cvxpy(self) -> list[SparseArray]:
+        r"""Return the QOT constraints as a list of per-constraint sparse matrices.
 
         This adapts the dense Kronecker construction of the QOT-to-SDP proof
-        (th. 3.1 of https://arxiv.org/abs/2105.06922) into a sparse standard-form
-        stack suitable for a general SDP solver such as the CVXPY backend, whose
-        equalities read :math:`\operatorname{Re}\operatorname{Tr}[A_i \Gamma] = b_i`.
+        (th. 3.1 of https://arxiv.org/abs/2105.06922) into standard-form
+        constraint matrices for a general SDP solver such as the CVXPY backend,
+        whose equalities read :math:`\operatorname{Re}\operatorname{Tr}[A_i \Gamma] = b_i`.
 
-        Row ``i = (k, \alpha)`` is the flattened Hermitian constraint matrix
+        Constraint ``i = (k, \alpha)`` is the Hermitian matrix
 
         .. math::
 
@@ -213,76 +276,109 @@ class QOTConstraintOp(LinOp[HermitianSpace, StackedSpace]):
         :math:`b_i = \operatorname{Tr}[H_\alpha^{(k)} \gamma_k]` is **real** even
         though the marginals :math:`\gamma_k` are complex Hermitian -- naively
         flattening the marginal entries would instead give a complex ``b``. The
-        matching ``b`` is produced by :meth:`marginals_to_rhs`.
+        matching ``b`` is produced by :meth:`rhs_to_cvxpy` and the dual is
+        reassembled by :meth:`dual_from_cvxpy`.
 
-        The returned matrix has shape ``(m, d^{2N})``, where
-        ``m = N d(d+1)/2`` for a real context and ``m = N d^2`` for a complex
-        one. Row ``i`` reshaped to ``(d^N, d^N)`` recovers :math:`A_i` (row-major),
-        so a solver can form ``trace(A_i @ Gamma)`` directly. Each generator
-        embeds over ``d^{N-1}`` configurations of the traced-out subsystems, so
-        storage stays sparse rather than the dense ``m d^{2N}``.
+        The returned list has ``m = N d(d+1)/2`` entries for a real context and
+        ``m = N d^2`` for a complex one, each a sparse ``(d^N, d^N)`` matrix so a
+        solver can form ``trace(A_i @ Gamma)`` directly. Each generator embeds
+        over ``d^{N-1}`` configurations of the traced-out subsystems, so storage
+        stays sparse rather than the dense ``m d^{2N}``.
         """
         import numpy as np
         from scipy.sparse import coo_matrix
 
         d, N = self.d, self.N
         D = d ** N
-        dom_size = D * D
+        is_complex = self.ops.is_complex_dtype(self.dtype)
+        dtype = np.complex128 if is_complex else np.float64
 
         generators = list(self._herm_generators())
-        m_block = len(generators)                 # d(d+1)/2 real, d^2 complex
-        m = N * m_block
-        is_complex = self.ops.is_complex_dtype(self.dtype)
 
-        rows_all, cols_all, data_all = [], [], []
+        mats: list[SparseArray] = []
         for k in range(N):
-            block = d ** (N - k)          # stride of subsystem k in a D-index
-            right = d ** (N - 1 - k)      # d-index stride of subsystem k
-            left = d ** k                 # number of higher-subsystem configs
+            base, right = self._site_index(k)         # D-index shared by bra/ket
 
-            hi = np.arange(left)[:, None]
-            lo = np.arange(right)[None, :]
-            base = (hi * block + lo).ravel()          # D-index shared by bra/ket
-
-            for g, (entries, _coord) in enumerate(generators):
-                row_id = k * m_block + g
+            for entries, _coord in generators:
+                rows, cols, data = [], [], []
                 for a, b, value in entries:
                     R = base + a * right              # bra keeps subsystem k = a
                     C = base + b * right              # ket keeps subsystem k = b
-                    col = R * D + C
-                    rows_all.append(np.full(col.shape, row_id))
-                    cols_all.append(col)
-                    data_all.append(np.full(col.shape, value))
+                    rows.append(R)
+                    cols.append(C)
+                    data.append(np.full(R.shape, value))
+                coo = coo_matrix(
+                    (
+                        np.concatenate(data).astype(dtype),
+                        (np.concatenate(rows), np.concatenate(cols)),
+                    ),
+                    shape=(D, D),
+                )
+                mats.append(self.ctx.assparse(coo))
+        return mats
 
-        rows = np.concatenate(rows_all)
-        cols = np.concatenate(cols_all)
-        data = np.concatenate(data_all).astype(np.complex128 if is_complex else np.float64)
+    def _generator_matrices(self) -> DenseArray:
+        r"""Return the generators of :meth:`_herm_generators` as ``(G, d, d)``.
 
-        coo = coo_matrix((data, (rows, cols)), shape=(m, dom_size))
-        return self.ctx.assparse(coo)
+        Densified from the sparse ``(a, b, value)`` entry lists once, on the
+        operator's own context, so :meth:`dual_from_cvxpy` can contract them in
+        a single ``einsum`` rather than a Python accumulation. The generators
+        depend only on ``d`` and the context's field, so the result is cached.
+        """
+        cached = getattr(self, "_generator_cache", None)
+        if cached is not None:
+            return cached
+
+        d = self.d
+        rows = []
+        for entries, _coord in self._herm_generators():
+            H = [[0.0 for _ in range(d)] for _ in range(d)]
+            for a, b, value in entries:
+                H[a][b] += value
+            rows.append(H)
+        # The imaginary generators are complex, so build in the widest dtype the
+        # context offers and let the caller take the real part on a real field.
+        self._generator_cache = self.ops.asarray(rows, dtype=self.dtype)
+        return self._generator_cache
+
+    def dual_from_cvxpy(self, y: DenseArray) -> DenseArray:
+        r"""Reassemble marginal dual blocks from per-constraint scalar duals.
+
+        Inverse of the row layout of :meth:`to_cvxpy` / :meth:`rhs_to_cvxpy`:
+        constraint ``i = (k, \alpha)`` reads off generator :math:`H_\alpha` of
+        block ``k``, so the marginal dual is
+        :math:`U_k = \sum_\alpha y_{(k,\alpha)} H_\alpha`, a Hermitian ``d x d``
+        block. The result is the stacked ``(N, d, d)`` codomain element. The
+        caller supplies ``y`` already carrying the intended dual sign.
+        """
+        ops = self.ops
+        H = self._generator_matrices()
+        coeffs = ops.reshape(ops.asarray(y, dtype=self.dtype), (self.N, -1))
+        return ops.einsum("kg,gab->kab", coeffs, H)
 
     def rhs_to_cvxpy(self, rhs: DenseArray) -> DenseArray:
-        r"""Return the real right-hand side ``b`` matching :meth:`to_sparse`.
+        r"""Return the real right-hand side ``b`` matching :meth:`to_cvxpy`.
 
-        ``marginals`` is the stacked codomain array ``(N, d, d)`` of Hermitian
+        ``rhs`` is the stacked codomain array ``(N, d, d)`` of Hermitian
         one-body marginals :math:`\gamma_k`. The returned real vector ``b`` has
-        length ``m`` (the row count of :meth:`to_sparse`) with
+        length ``m`` (the number of matrices from :meth:`to_cvxpy`) with
         :math:`b_{(k,\alpha)} = \operatorname{Tr}[H_\alpha^{(k)} \gamma_k]`, laid
         out in the same generator order so that the SDP equality
         :math:`\operatorname{Re}\operatorname{Tr}[A_i \Gamma] = b_i` holds.
+
+        Equivalently :math:`b = \operatorname{Re}\langle H_\alpha, \gamma_k\rangle`
+        read off the generator matrices, which is how it is evaluated: the
+        per-entry ``re``/``im`` selection of :meth:`_herm_generators` is exactly
+        what tracing against the generator performs.
         """
-        import numpy as np
-
+        ops = self.ops
         self.cod.check_member(rhs)
-        gamma = np.asarray(rhs).reshape(self.N, self.d, self.d)
-        generators = list(self._herm_generators())
-
-        b = np.empty(self.N * len(generators), dtype=np.float64)
-        for k in range(self.N):
-            for g, (_entries, (part, i, j)) in enumerate(generators):
-                entry = gamma[k, i, j]
-                b[k * len(generators) + g] = entry.real if part == "re" else entry.imag
-        # b is real by construction, even for a complex context: keep it real so
-        # a solver reads real equalities rather than complex-with-zero-imag ones.
-        real_dtype = self.ops.real_dtype(self.dtype)
-        return self.ops.asarray(b, dtype=real_dtype)
+        gamma = ops.reshape(ops.asarray(rhs, dtype=self.dtype), (self.N, self.d, self.d))
+        H = self._generator_matrices()
+        # Tr[H_a gamma_k] = sum_{ab} H[a,b] gamma[b,a]; real by construction
+        # because every generator is Hermitian and every gamma_k is.
+        b = ops.einsum("gab,kba->kg", H, gamma)
+        # Keep b real even on a complex context, so a solver reads real
+        # equalities rather than complex-with-zero-imag ones.
+        return ops.asarray(ops.real(ops.reshape(b, (-1,))),
+                           dtype=ops.real_dtype(self.dtype))

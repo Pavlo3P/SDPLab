@@ -120,13 +120,28 @@ def generate_max_cut(
     atol: float = 0.0,
     rtol: float = 0.0,
     enforce_herm: bool = True,
+    unit_trace: bool = False,
     ctx: Context | str | None = None
 ):
+    r"""Return the Max-Cut SDP for an Erdős–Rényi graph on ``n`` vertices.
+
+    The constraint is :math:`\operatorname{diag}(X) = \mathbf{1}`, hence
+    :math:`\operatorname{Tr}X = n`. With ``unit_trace=True`` the substitution
+    :math:`X = n\tilde X` is applied instead, giving
+    :math:`\operatorname{diag}(\tilde X) = \mathbf{1}/n`,
+    :math:`\operatorname{Tr}\tilde X = 1`, and cost :math:`nC` -- the same
+    problem in a rescaled variable, so the optimal value is unchanged. Use it
+    when a unit-trace primal is assumed, as by the fixed-trace (log-partition)
+    form of the entropy dual.
+    """
     np_ctx = Context(NumpyOps(), dtype="float64", check_level="none")
 
     L = generate_erdos_renyi_graph_laplacian(n, p, seed, weighted, weight_low, weight_high)
     C = -L / 4  # Minus to turn maximization into minimization
     b = np.ones(n)
+    if unit_trace:
+        C = C * n
+        b = b / n
 
     dom = HermitianSpace(n, atol=atol, rtol=rtol, enforce_herm=enforce_herm, ctx=np_ctx)
     cod = DenseVectorSpace((n,), ctx=np_ctx)
