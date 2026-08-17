@@ -6,13 +6,12 @@ marginals from that density matrix, and returns an SDP whose constraints are
 therefore feasible by construction.
 """
 
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 import numpy as np
 
 from spacecore import Context, NumpyOps
 from ...special.qot import QOTConstraintOp
 from ...problem import SDPProblem
-from ...variables import SDPPrimal
 
 
 def generate_random_qot(
@@ -23,7 +22,7 @@ def generate_random_qot(
         rtol: float = 0.0,
         enforce_herm: bool = True,
         ctx: Context | str | None = None
-) -> Tuple[SDPProblem, SDPPrimal]:
+) -> Tuple[SDPProblem, Any]:
     r"""
     Generate a random dense QOT instance together with a feasible primal state.
 
@@ -45,7 +44,7 @@ def generate_random_qot(
     :math:`(\mathbb{C}^d)^{\otimes N}`,
     builds a reference density matrix as a convex combination of eigenvector projectors,
     computes its one-body marginals through ``QOTConstraintOp``, and returns the
-    corresponding dense SDP problem plus the same state wrapped as an ``SDPPrimal``.
+    corresponding dense SDP problem plus the same state as a plain ``dom`` element.
 
     The generated primal state is feasible for the constructed constraint data by design,
     since the marginals are obtained by applying the constraint operator to that state.
@@ -58,8 +57,8 @@ def generate_random_qot(
         proportions: Coefficients used to form the mixed state
             :math:`\Gamma = \sum_i p_i \, |v_i\rangle \langle v_i|`,
             where the :math:`v_i` are eigenvectors of the sampled cost matrix.
-            This is intended to be a convex combination, so typically the entries
-            should be nonnegative and sum to :math:`1`.
+            This is intended to be a convex combination, so the entries should
+            be nonnegative and sum to :math:`1`.
         seed: Random seed used for NumPy sampling.
         atol: Absolute tolerance passed to ``QOTConstraintOp``.
         rtol: Relative tolerance passed to ``QOTConstraintOp``.
@@ -68,10 +67,10 @@ def generate_random_qot(
             problem is converted to this context before returning.
 
     Returns:
-        - ``qot`` is an ``SDPDenseProblem`` representing the dense QOT SDP with the
+        - ``qot`` is an ``SDPProblem`` representing the dense QOT SDP with the
           sampled Hermitian cost matrix and marginals induced by ``Gamma``.
-        - ``state`` is an ``SDPPrimal`` containing the same density matrix used to
-          define the marginals, now represented in the returned problem's context.
+        - ``state`` is the same density matrix used to define the marginals, a
+          plain ``dom`` element in the returned problem's context.
 
     Notes:
         - The random cost matrix is sampled entrywise in real and imaginary parts and
@@ -102,7 +101,7 @@ def generate_random_qot(
     evals, evecs = np.linalg.eigh(cost_matrix)
 
     # Compute ground state energy and density matrix
-    np_ctx = Context(NumpyOps(), dtype=np.complex128, enable_checks=False)
+    np_ctx = Context(NumpyOps(), dtype=np.complex128, check_level="none")
     Gamma = sum(p * np.outer(v, v.conj()) for p, v in zip(proportions, evecs.T))
     Gamma = (Gamma + Gamma.T.conj()) * .5
     qot_op = QOTConstraintOp(d=d, N=N, atol=atol, rtol=rtol, enforce_herm=enforce_herm, ctx=np_ctx)
@@ -110,9 +109,10 @@ def generate_random_qot(
 
     # Define QOT problem & convert to target ctx
     qot = SDPProblem(cost_matrix, qot_op, marginals, ctx=np_ctx)
-    qot = qot.convert(ctx)
+    if ctx is not None:
+        qot = qot.convert(ctx)
 
-    # Wrap example state into SDPPrimal
-    state = qot.primal_from_array(Gamma)
+    # Move the example state onto the problem's context
+    state = qot.ctx.asarray(Gamma)
 
     return qot, state
