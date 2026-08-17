@@ -43,7 +43,9 @@ jobs:
           python -m pip install -r docs/requirements.txt
 
       - name: Build Sphinx HTML
-        run: sphinx-build -b html docs/source docs/_build/html
+        # -W turns warnings into errors, so a doc reference to a removed or
+        # renamed object fails the build instead of publishing silently.
+        run: sphinx-build -W -b html docs/source docs/_build/html
 
       - name: Upload Pages artifact
         if: github.event_name == 'push'

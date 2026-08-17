@@ -9,6 +9,6 @@ flow.
    :maxdepth: 1
 
    sdp_basics
-   dense_sdp
+   building_problems
    regularization
    qot

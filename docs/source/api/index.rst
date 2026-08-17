@@ -1,14 +1,15 @@
 API reference
 =============
 
-The API reference is split by SDPLab abstraction. Pages use explicit autodoc
-directives for public objects instead of dumping entire modules.
+Generated from each package's ``__all__``: every object listed here is a
+public export, and nothing public is omitted.
 
 .. toctree::
    :maxdepth: 1
 
-   sdp
+   problem
    regularization
    solvers
+   examples
    linalg
    special

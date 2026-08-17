@@ -6,16 +6,18 @@ SDPLab uses the following primal form:
 
 .. math::
 
-   \min_X \quad \operatorname{Tr}[C X]
+   \min_X \quad \langle C, X\rangle
    \quad \text{s.t.} \quad
    \mathcal{A}X = b,\quad
    X \succeq 0.
 
 Each symbol has a direct coding meaning:
 
-* :math:`X \in \mathrm{dom}` is the unknown primal matrix.
+* :math:`X \in \mathrm{dom}` is the unknown primal element -- a Hermitian
+  matrix here, but ``dom`` may be any Euclidean Jordan algebra space, so a
+  nonnegative vector or a tree of blocks works the same way.
 * :math:`C \in \mathrm{dom}` is the symmetric or Hermitian cost matrix.
-* :math:`\operatorname{Tr}[C X]` is the scalar objective value.
+* :math:`\langle C, X\rangle` is the scalar objective value.
 * :math:`\mathcal{A}: \mathrm{dom} \to \mathrm{cod}` is a linear constraint
   operator.
 * :math:`b \in \mathrm{cod}` is the desired constraint value.
@@ -25,7 +27,7 @@ Why the trace appears
 ---------------------
 
 For dense real or complex matrices, the expression
-:math:`\operatorname{Tr}[C X]` is the matrix analogue of a dot product. If
+:math:`\langle C, X\rangle` is the matrix analogue of a dot product. If
 :math:`C` is the cost matrix, then entries of :math:`X` aligned with large
 positive entries of :math:`C` make the objective larger; entries aligned with
 negative directions make it smaller.
@@ -39,12 +41,13 @@ trace equations:
 
 .. math::
 
-   (\mathcal{A}X)_i = \operatorname{Tr}[A_i X] = b_i,
+   (\mathcal{A}X)_i = \langle A_i, X\rangle = b_i,
    \qquad i = 0,\ldots,m-1.
 
-The matrices :math:`A_i` are not stored by :class:`sdplab.sdp.SDPProblem`
-itself. They live inside the SpaceCore linear operator that represents
-:math:`\mathcal{A}`.
+The matrices :math:`A_i` are not stored by
+:class:`sdplab.problem.SDPProblem` itself. They live inside the SpaceCore
+linear operator that represents :math:`\mathcal{A}`, which may materialize
+them or stay matrix-free.
 
 Dual variables
 --------------
