@@ -20,19 +20,15 @@ optimization loop is delegated to `spacecore.optimize`.
   `LinOp` without densifying it.
 
 - **Spectral regularizers** (`sdplab.regularization`) — `Regularizer` applies a
-  scalar convex `φ` spectrally over the domain, with `EntropyReg`, `QuadraticReg`,
-  and `TsallisReg` (the q-exponential / α-entmax family, compactly supported for
-  `q > 1`, so the recovered primal is exactly low rank). Every `phi` carries the
-  domain indicator: `+inf` below a small negative tolerance, the limit value
+  scalar convex `φ` spectrally over the domain, with `EntropyReg` and
+  `QuadraticReg`. Every `phi` carries the domain indicator: `+inf` below a small negative tolerance, the limit value
   inside it, so `phi` is the Fenchel partner of the `phi_star` beside it.
 
 - **Unit-trace primal recovery** — the trace constraint's multiplier enters
   additively in the argument of `ψ'`, not as a division, so the softmax
-  `g_i / Σ g_j` is the fixed-trace primal only where `log ψ'` is affine (the
-  entropy family). `TsallisReg` therefore takes `normalization="theta"` (default)
-  solving `Σ ψ'((s_i − θ)/ε) = 1` for a chemical potential, or `"softmax"` for the
-  cheaper base-class form. The root find is a fixed-trip `fori_loop` with a
-  closed-form bracket, so it traces under `jax.jit`.
+  `g_i / Σ g_j` is the fixed-trace primal only where `log ψ'` is affine — which
+  holds for the entropy family. The smoothed dual route assumes a unit-trace
+  primal.
 
 - **Smoothed dual** (`sdplab.regularization`) — `RegularizedSDPDualFunctional`
   evaluates `D_ε(y) = ⟨b,y⟩ − ε Tr[ψ((A†y − C)/ε)]` and recovers the primal from

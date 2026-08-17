@@ -83,6 +83,11 @@ with $\psi$ the Legendre transform of $\varphi$. Gradient methods apply, and the
 primal is read back off the eigenvalues $s_i$ of the dual slack:
 $\lambda_i(X) = \psi'(s_i/\varepsilon)$.
 
+This route **assumes a unit-trace primal** — `primal_from_dual` normalizes to
+$\mathrm{Tr}\,X = 1$ — so pose the problem accordingly, hence `unit_trace=True`
+below. On a problem whose feasible set has a different trace the recovered $X$
+is not feasible for it.
+
 ```python
 from sdplab import EntropyReg, RegularizedSDPDualFunctional, run_regularized_solver
 from sdplab.examples import generate_max_cut
@@ -102,14 +107,10 @@ single-argument `spacecore.Functional`.
 
 ## Regularizers
 
-| class | $\varphi(t)$ | recovered primal |
-| --- | --- | --- |
-| `EntropyReg` | $t(\log t - 1)$ | full rank, Gibbs state |
-| `QuadraticReg` | $t^2/2$ | clipped, $\max\\{s/\varepsilon, 0\\}$ |
-| `TsallisReg` | $(t^q - t)/(q-1)$, $q > 1$ | **exactly** low rank |
-
-`TsallisReg` is the q-exponential (α-entmax) family: softmax at $q \to 1$,
-sparsemax at $q = 2$.
+| class | $\varphi(t)$ |
+| --- | --- |
+| `EntropyReg` | $t(\log t - 1)$ |
+| `QuadraticReg` | $t^2/2$ |
 
 ## Examples
 
