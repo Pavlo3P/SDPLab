@@ -105,6 +105,10 @@ $\varepsilon$ is a per-call argument, so a continuation schedule can lower it
 without rebuilding anything; `bind(eps)` fixes it and yields a standard
 single-argument `spacecore.Functional`.
 
+The theoretical basis for the regularized SDP formulation — the smoothed dual,
+the primal recovery map, and the $\varepsilon \downarrow 0$ limit — is developed
+in [arXiv:2602.23144](https://arxiv.org/abs/2602.23144).
+
 ## Regularizers
 
 | class | $\varphi(t)$ |
