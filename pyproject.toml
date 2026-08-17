@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sdplab"
-version = "0.1.0"
+version = "0.0.1"
 description = "Tools for constructing and solving regularized semidefinite programming problems."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -12,18 +12,17 @@ dependencies = [
     "numpy",
     "scipy",
     "cvxpy",
-    "jax[cpu]",
-    "optax",
-    "spacecore>=0.2.0,<0.3",
+    "spacecore>=0.4.2,<0.5",
 ]
 
 [project.optional-dependencies]
-quantum = [
-    "qiskit",
-    "qiskit-aer",
+jax = [
+    "spacecore[jax]",
+    "jax>=0.9.1",
+    "optax>=0.2",
 ]
 test = [
-    "pytest",
+    "pytest>=8.0",
 ]
 
 [tool.setuptools.packages.find]

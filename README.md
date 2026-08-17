@@ -1,159 +1,130 @@
 # SDPLab
 
-SDPLab is a small library for building and experimenting with semidefinite
-programming (SDP) problems.
+A library for building semidefinite and conic programs and solving them
+through their **smoothed dual**. Problem data, spectral regularizers, and the
+dual functional live here; every first-order optimization loop is delegated to
+[spacecore](https://pypi.org/project/spacecore/).
 
-## What Is an SDP?
+## Install
 
-An SDP is an optimization problem where the unknown is a matrix-like variable:
-
-$$
-\begin{aligned}
-\min_{X \in \mathrm{dom}(\mathcal{A})}\quad
-    & \mathrm{Tr}[C X] \\
-\text{s.t.}\quad
-    & \mathcal{A}X = b, \\
-    & X \succeq 0.
-\end{aligned}
-$$
-
-Here
-
-- $X \in \mathrm{dom}(\mathcal{A})$ is the primal variable.
-- $X \succeq 0$ means that $X$ is positive semidefinite, so all eigenvalues of
-  $X$ are nonnegative.
-- $C \in \mathrm{dom}(\mathcal{A})$ is the cost matrix or cost element.
-- $\mathrm{Tr}[C X]$ is the trace objective. For dense matrices, think
-  `trace(C @ X)`.
-- $\mathcal{A} : \mathrm{dom}(\mathcal{A})
-  \to \mathrm{cod}(\mathcal{A})$ is the linear constraint operator.
-- $b \in \mathrm{cod}(\mathcal{A})$ is the constraint right-hand side.
-- $\mathcal{A}X = b$ means that $X$ must satisfy a list or structured
-  collection of linear equalities.
-
-The library names match this notation:
-
-- `dom` is $\mathrm{dom}(\mathcal{A})$, the space containing $C$ and $X$.
-- `cod` is $\mathrm{cod}(\mathcal{A})$, the space containing
-  $\mathcal{A}X$, $b$, and dual variables $y$.
-- `SDPProblem` stores
-  $C \in \mathrm{dom}(\mathcal{A})$,
-  $\mathcal{A} : \mathrm{dom}(\mathcal{A})
-  \to \mathrm{cod}(\mathcal{A})$, and
-  $b \in \mathrm{cod}(\mathcal{A})$.
-- `SDPPrimal` wraps a candidate primal variable
-  $X \in \mathrm{dom}(\mathcal{A})$.
-- `SDPDual` wraps a candidate dual variable
-  $y \in \mathrm{cod}(\mathcal{A})$.
-
-## How To Build a Problem
-
-1. Decide what shape and type the unknown variable $X$ has.
-   This determines $\mathrm{dom}(\mathcal{A})$. For a dense complex SDP,
-   this is usually a Hermitian matrix space.
-
-2. Decide what linear constraints are needed.
-   This determines $\mathrm{cod}(\mathcal{A})$ and the linear map
-   $\mathcal{A} : \mathrm{dom}(\mathcal{A})
-   \to \mathrm{cod}(\mathcal{A})$.
-
-3. Pick the right-hand side
-   $b \in \mathrm{cod}(\mathcal{A})$.
-   Feasible primal variables satisfy $\mathcal{A}X = b$.
-
-4. Pick the cost element
-   $C \in \mathrm{dom}(\mathcal{A})$.
-   The solver minimizes $\mathrm{Tr}[C X]$.
-
-5. Wrap the data as an SDP problem.
-
-Example skeleton:
-
-```python
-from spacecore import Context, NumpyOps, DenseLinOp, HermitianSpace, VectorSpace
-from sdplab.sdp import SDPDenseProblem
-from sdplab.solvers import run_cvxpy_solver
-
-# Passing ctx is optional, see spacecore lib 
-# documentation for more details
-ctx = Context(NumpyOps())
-
-dom = HermitianSpace(n, ctx=ctx)      # X and C are n x n Hermitian matrices
-cod = VectorSpace((m,), ctx=ctx)      # A X and b are length-m vectors
-
-A_op = DenseLinOp(A_mats, dom, cod, ctx=ctx)
-problem = SDPDenseProblem(C, A_op, b, tau=None, ctx=ctx)
-
-primal, dual = run_cvxpy_solver(problem)
+```bash
+pip install sdplab
 ```
 
-If `tau` is set, the dense problem also includes the affine constraint
+The JAX backend and the optax optimizer are optional:
 
-$$
-\mathrm{Tr}[X] = \tau.
-$$
+```bash
+pip install "sdplab[jax]"
+```
 
-For density matrices, use `tau=1.0`.
-
-## Dual Objects
-
-The dual variable satisfies
-
-$$
-y \in \mathrm{cod}(\mathcal{A}).
-$$
-
-The adjoint operator
-
-$$
-\mathcal{A}^\dagger :
-\mathrm{cod}(\mathcal{A})
-\to
-\mathrm{dom}(\mathcal{A})
-$$
-
-moves dual variables back into the primal space. The expression
-
-$$
-\mathcal{A}^\dagger y - C
-$$
-
-is the dual slack expression used by dual solvers and regularized primal
-recovery.
-
-## Regularized SDPs
-
-Superlinear convex function $\varphi$ could be used for the penalization of primal problem
-depending on strength $\varepsilon > 0$
+## The problem
 
 $$
 \begin{aligned}
 \min_{X \in \mathrm{dom}(\mathcal{A})}\quad
-    & \mathrm{Tr}[C X] +\varepsilon \mathrm{Tr}[\varphi(X)] \\
+    & \langle C, X\rangle \\
 \text{s.t.}\quad
     & \mathcal{A}X = b, \\
     & X \succeq 0.
 \end{aligned}
 $$
 
-The respective unconstrained dual problem is
+| symbol | code | meaning |
+| --- | --- | --- |
+| $\mathrm{dom}(\mathcal{A})$ | `problem.dom` | space of $X$ and $C$ |
+| $\mathrm{cod}(\mathcal{A})$ | `problem.cod` | space of $\mathcal{A}X$, $b$, and the dual $y$ |
+| $\mathcal{A}$ | `problem.A` | linear constraint operator, a spacecore `LinOp` |
+| $\mathcal{A}^\dagger y - C$ | `problem.dual_slack(y)` | dual slack |
 
-$$\max_{y\in\mathrm{cod}(\mathcal{A})} D_\varepsilon(y)=\mathrm{Tr}[b y]-\varepsilon\mathrm{Tr}\left[\psi\left(\frac{\mathcal{A}^\dagger y-C}{\varepsilon}\right)\right]$$
+$X$ is a plain element of a spacecore Euclidean Jordan algebra space — a
+Hermitian matrix (classic SDP), a nonnegative vector (LP), or a tree of such
+blocks — and $X \succeq 0$ means a nonnegative Jordan spectrum. Solvers accept
+and return raw arrays and trees; there are no wrapper objects.
 
-where $\psi$ is the Legendre transform of $\varphi$.
+```python
+import numpy as np
+from spacecore import Context, DenseLinOp, DenseVectorSpace, HermitianSpace, NumpyOps
+from sdplab import SDPProblem
 
-This makes it possible to optimize in the dual space using gradient methods and recover a primal
-matrix from the eigendecomposition of $\mathcal{A}^\dagger y - C$. If
-$s_i$ are the eigenvalues of $\mathcal{A}^\dagger y - C$, the recovery uses the
-spectral first-order relation
+ctx = Context(NumpyOps())                   # optional; see the spacecore docs
+dom = HermitianSpace(n, ctx=ctx)            # X and C live here
+cod = DenseVectorSpace((m,), ctx=ctx)       # A X, b, and the dual y live here
+
+A = DenseLinOp(A_mats, dom, cod, ctx=ctx)
+problem = SDPProblem(C, A, b, ctx=ctx)
+```
+
+Solve it directly with the CVXPY reference backend:
+
+```python
+from sdplab.solvers import run_cvxpy_solver
+
+X, y = run_cvxpy_solver(problem, solver="CLARABEL")
+```
+
+## The smoothed dual
+
+Penalize the primal with a superlinear convex $\varphi$ at strength
+$\varepsilon > 0$:
 
 $$
-\lambda_i(X) = \psi'\left(\frac{s_i}{\varepsilon}\right).
+\min_X\ \langle C, X\rangle + \varepsilon\,\mathrm{Tr}[\varphi(X)]
+\quad\text{s.t.}\quad \mathcal{A}X = b,\ X \succeq 0.
 $$
 
-Built-in regularizers:
+Its dual is unconstrained and differentiable:
 
-- `EntropyReg`: entropy-style spectral regularization for the primal SDP.
-- `EntropyRegLog`: entropy-style spectral regularization for trace-normalized
-  problems, such as problems with $\mathrm{Tr}[X] = 1$.
-- `QuadraticReg`: quadratic spectral regularization for the primal SDP.
+$$
+\max_{y}\ D_\varepsilon(y) = \langle b, y\rangle - \varepsilon\,
+\mathrm{Tr}\!\left[\psi\!\left(\frac{\mathcal{A}^\dagger y - C}{\varepsilon}\right)\right],
+$$
+
+with $\psi$ the Legendre transform of $\varphi$. Gradient methods apply, and the
+primal is read back off the eigenvalues $s_i$ of the dual slack:
+$\lambda_i(X) = \psi'(s_i/\varepsilon)$.
+
+```python
+from sdplab import EntropyReg, RegularizedSDPDualFunctional, run_regularized_solver
+from sdplab.examples import generate_max_cut
+
+problem = generate_max_cut(8, seed=0, unit_trace=True)
+dual = RegularizedSDPDualFunctional(problem, EntropyReg(problem.dom))
+
+result = run_regularized_solver(dual.bind(0.1), verbose=0)
+X = dual.primal_from_dual(result.dual, 0.1)
+
+problem.primal_objective(X)     # -5.0859, against -5.0990 from CVXPY
+```
+
+$\varepsilon$ is a per-call argument, so a continuation schedule can lower it
+without rebuilding anything; `bind(eps)` fixes it and yields a standard
+single-argument `spacecore.Functional`.
+
+## Regularizers
+
+| class | $\varphi(t)$ | recovered primal |
+| --- | --- | --- |
+| `EntropyReg` | $t(\log t - 1)$ | full rank, Gibbs state |
+| `QuadraticReg` | $t^2/2$ | clipped, $\max\\{s/\varepsilon, 0\\}$ |
+| `TsallisReg` | $(t^q - t)/(q-1)$, $q > 1$ | **exactly** low rank |
+
+`TsallisReg` is the q-exponential (α-entmax) family: softmax at $q \to 1$,
+sparsemax at $q = 2$.
+
+## Examples
+
+`sdplab.examples` ships three instances, chosen to differ in the structure of
+$\mathcal{A}$:
+
+- `generate_max_cut` — real, diagonal extraction. `unit_trace=True` rescales the
+  variable so $\mathrm{Tr}\,X = 1$.
+- `generate_random_qot` — quantum optimal transport: complex, with a stacked
+  Hermitian-block codomain, so the dual is a tuple of matrices.
+- `generate_qubit_tomography` — zero cost, so pure feasibility.
+
+## Backends
+
+Everything is written against spacecore's backend contract, so NumPy, JAX, and
+torch contexts all work. `run_regularized_solver` picks
+`spacecore.minimize_optax` on a JAX backend and `spacecore.minimize_scipy`
+otherwise. 
