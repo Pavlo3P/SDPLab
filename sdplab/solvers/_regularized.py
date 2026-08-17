@@ -1,198 +1,220 @@
-"""Backend dispatcher for smooth regularized SDP dual solvers."""
+"""Dispatcher for smooth regularized dual solves via ``spacecore.optimize``.
+
+No optimization loop lives here. Iteration, line search, convergence testing,
+history recording, and timing are owned by :func:`spacecore.minimize_scipy` and
+:func:`spacecore.minimize_optax`; this module only fixes the maximization sign
+and translates results into the package-level :class:`OptimizeResult`.
+
+The entry point takes a :class:`BoundDualFunctional` -- ε and the normalization
+travel with the functional rather than being passed alongside it, so there is
+no way to solve at one ε while recovering the primal at another. Build one with
+``RegularizedSDPDualFunctional.bind(eps, normalized=...)``.
+"""
 
 from __future__ import annotations
 
 import logging
-import math
-import time
 
-from spacecore import JaxOps, NumpyOps
+from spacecore import minimize_optax, minimize_scipy
 
-try:
-    from spacecore import TorchOps
-except ImportError:  # pragma: no cover - depends on optional torch install
-    TorchOps = ()
-
-from ..regularization import SDPRegularized
-from ..sdp import SDPDual
-from ._common import problem_summary
-from ._runner import OptimizeResult, _ensure_info_logging
-from ._torch import solve_torch
-from .jax import solve_optax
-
+from ..regularization import BoundDualFunctional
+from ._common import OptimizeResult, loop_functional, problem_summary
 
 logger = logging.getLogger(__name__)
 
 
 def run_regularized_solver(
-    problem: SDPRegularized,
-    init_dual: SDPDual | None = None,
+    problem: BoundDualFunctional,
+    init_dual=None,
     *,
-    max_iter: int = 1000,
-    tol: float = 1e-6,
     method: str | None = None,
     opt=None,
     learning_rate: float = 1e-2,
-    verbose: int = 1,
-    ascii_only: bool = False,
-    color: bool | None = None,
-    **kwargs,
-) -> OptimizeResult:
-    """Optimize a regularized SDP dual with the matching backend driver."""
-    if init_dual is None:
-        init_dual = problem.sdp.dual_from_array(problem.sdp.cod.zeros())
-
-    ops = problem.sdp.ctx.ops
-    if isinstance(ops, JaxOps):
-        if opt is None:
-            import optax
-
-            opt = optax.adam(learning_rate)
-        return solve_optax(
-            problem,
-            init_dual,
-            opt=opt,
-            max_iter=max_iter,
-            tol=tol,
-            verbose=verbose,
-            ascii_only=ascii_only,
-            color=color,
-            **kwargs,
-        )
-
-    elif isinstance(ops, TorchOps):
-        return solve_torch(
-            problem,
-            init_dual,
-            opt=opt,
-            max_iter=max_iter,
-            tol=tol,
-            learning_rate=learning_rate,
-            verbose=verbose,
-            ascii_only=ascii_only,
-            color=color,
-            **kwargs,
-        )
-
-    elif isinstance(ops, NumpyOps):
-        return solve_scipy(
-            problem,
-            init_dual=init_dual,
-            method=method,
-            max_iter=max_iter,
-            tol=tol,
-            verbose=verbose,
-            ascii_only=ascii_only,
-            color=color,
-            **kwargs,
-        )
-
-    raise ValueError(f"Unsupported regularized SDP backend: {type(ops).__name__}")
-
-
-def solve_scipy(
-    problem: SDPRegularized,
-    *,
-    init_dual: SDPDual | None = None,
-    method: str | None = "L-BFGS-B",
     max_iter: int = 1000,
     tol: float = 1e-6,
     verbose: int = 1,
-    ascii_only: bool = False,
-    color: bool | None = None,
     **kwargs,
 ) -> OptimizeResult:
-    """Solve a regularized SDP dual through ``scipy.optimize.minimize``.
+    """Optimize a regularized dual objective with the matching backend driver.
 
-    SciPy owns its optimization loop, so progress reporting and per-iteration
-    diagnostics are limited compared to ``solve_optax`` and ``solve_torch``.
+    Args:
+        problem: The :class:`BoundDualFunctional` to maximize; its ``eps_val``
+            and ``normalized`` select the strength and the primal recovery.
+        init_dual: Initial dual iterate, a plain ``cod`` element. Defaults to
+            zeros.
+        method: ``"scipy"`` or ``"optax"``. ``None`` selects ``"optax"`` on a
+            JAX backend and ``"scipy"`` otherwise.
+        opt: Optax optimizer for the ``optax`` route (default
+            ``optax.adam(learning_rate)``).
+        **kwargs: Forwarded to the underlying driver
+            (:func:`spacecore.minimize_scipy` /
+            :func:`spacecore.minimize_optax`).
+
+    Returns:
+        An :class:`OptimizeResult` whose ``final_loss``/``loss_history``
+        report the maximized dual value :math:`D_\\varepsilon` and whose
+        ``raw`` field carries the untranslated backend result.
     """
-    if not isinstance(problem, SDPRegularized):
-        raise TypeError("solve_scipy expects SDPRegularized.")
-    if max_iter <= 0:
-        raise ValueError("max_iter must be positive.")
-    if tol <= 0:
-        raise ValueError("tol must be positive.")
+    if not isinstance(problem, BoundDualFunctional):
+        raise TypeError(
+            "run_regularized_solver expects a BoundDualFunctional; got "
+            f"{type(problem).__name__}. Call .bind(eps, normalized=...) on a "
+            "RegularizedSDPDualFunctional first."
+        )
 
-    import numpy as np
-    from scipy import optimize
+    if method is None:
+        family = getattr(problem.ops, "family", None)
+        method = "optax" if family == "jax" else "scipy"
 
     if init_dual is None:
-        init_dual = problem.sdp.dual_from_array(problem.sdp.cod.zeros())
+        init_dual = problem.domain.zeros()
 
-    x0 = np.asarray(init_dual.y).reshape(-1)
-    shape = tuple(init_dual.y.shape)
-    objective_values: list[float] = []
+    if method == "scipy":
+        return _solve_scipy(
+            problem, init_dual,
+            max_iter=max_iter, tol=tol, verbose=verbose, **kwargs,
+        )
+    if method == "optax":
+        return _solve_optax(
+            problem, init_dual,
+            opt=opt, learning_rate=learning_rate,
+            max_iter=max_iter, tol=tol, verbose=verbose, **kwargs,
+        )
 
-    def unpack(x):
-        return problem.sdp.dual_from_array(np.asarray(x).reshape(shape))
+    raise ValueError(f"Unknown method {method!r}; use 'scipy' or 'optax'.")
 
-    def objective(x):
-        value = problem.dual_objective_reg(unpack(x))
-        dual_obj = float(np.real(np.asarray(value)))
-        objective_values.append(dual_obj)
-        return -dual_obj
 
-    options = dict(kwargs.pop("options", {}))
-    options.setdefault("maxiter", max_iter)
+def _loop_bound(problem: BoundDualFunctional) -> BoundDualFunctional:
+    """Return ``problem`` with runtime membership checks disabled.
+
+    :func:`loop_functional` converts the eps-per-call base, so the bound view
+    is rebuilt around it carrying the same ``eps_val`` and ``normalized``.
+    """
+    return loop_functional(problem.base).bind(
+        problem.eps_val, normalized=problem.normalized
+    )
+
+
+def _solve_scipy(
+    problem: BoundDualFunctional,
+    init_dual,
+    *,
+    max_iter: int,
+    tol: float,
+    verbose: int,
+    scipy_method: str = "L-BFGS-B",
+    **kwargs,
+) -> OptimizeResult:
+    """Maximize the dual with :func:`spacecore.minimize_scipy` (L-BFGS-B default).
+
+    :func:`spacecore.minimize_scipy` requires a real inner-product domain --
+    it flattens through ``F.domain.flatten`` and hands SciPy real coordinate
+    vectors -- so a complex codomain is rejected up front rather than left to
+    fail inside SciPy.
+    """
+    import time
+
+    import numpy as np
+
+    cod = problem.domain
+    if getattr(cod, "field", "real") != "real":
+        raise NotImplementedError(
+            "method='scipy' needs a real codomain; spacecore.minimize_scipy "
+            f"cannot flatten {type(cod).__name__} (field="
+            f"{getattr(cod, 'field', None)!r}) into real coordinates. Use "
+            "method='optax' on a JAX backend."
+        )
+
+    # Negate through the spacecore functional algebra: SciPy minimizes -D_eps.
+    F = -_loop_bound(problem)
 
     if int(verbose) >= 1:
-        _ensure_info_logging(logger)
-        logger.info("=" * 80)
-        logger.info("Solver: scipy%s", f", method={method}" if method else "")
-        logger.info("Problem: %s", problem_summary(problem))
-        logger.info("Tolerance: scipy tol < %g", tol)
-        logger.info("Max iterations: %d", max_iter)
-        logger.info("=" * 80)
+        logger.info(
+            "solver: scipy/%s on %s",
+            scipy_method, problem_summary(problem.base, problem.eps_val),
+        )
 
+    options = dict(kwargs.pop("options", {}))
+    options.setdefault("maxiter", int(max_iter))
     start = time.perf_counter()
-    scipy_result = optimize.minimize(
-        objective,
-        x0,
-        method=method,
-        tol=tol,
-        options=options,
-        **kwargs,
+    result = minimize_scipy(
+        F, init_dual, method=scipy_method, tol=tol, options=options, **kwargs
     )
     elapsed = time.perf_counter() - start
 
-    final_grad_norm = _scipy_grad_norm(getattr(scipy_result, "jac", None))
-    final_loss = -float(
-        getattr(
-            scipy_result,
-            "fun",
-            -objective_values[-1] if objective_values else math.nan,
-        )
+    jac = getattr(result, "jac", None)
+    grad_norm = (
+        float(np.linalg.norm(np.asarray(jac).reshape(-1)))
+        if jac is not None
+        else float("nan")
     )
-    num_iters = int(getattr(scipy_result, "nit", len(objective_values)))
-
-    result = OptimizeResult(
-        dual=unpack(scipy_result.x),
-        converged=bool(scipy_result.success),
-        num_iters=num_iters,
-        final_loss=final_loss,
-        final_grad_norm=final_grad_norm,
+    wrapped = OptimizeResult(
+        dual=result.x_element,
+        converged=bool(result.success),
+        num_iters=int(getattr(result, "nit", -1)),
+        final_loss=-float(result.fun),
+        final_grad_norm=grad_norm,
         elapsed_seconds=elapsed,
-        loss_history=objective_values,
-        grad_norm_history=None,
-        step_times=None,
+        raw=result,
     )
-    result.scipy_result = scipy_result
-
     if int(verbose) >= 1:
-        logger.info(result.summary())
-        logger.info("=" * 80)
-
-    return result
+        logger.info(wrapped.summary())
+    return wrapped
 
 
-def _scipy_grad_norm(jac) -> float:
-    if jac is None:
-        return math.nan
+def _solve_optax(
+    problem: BoundDualFunctional,
+    init_dual,
+    *,
+    opt,
+    learning_rate: float,
+    max_iter: int,
+    tol: float,
+    verbose: int,
+    **kwargs,
+) -> OptimizeResult:
+    """Maximize the dual with spacecore's compiled optax loop.
 
-    import numpy as np
+    The whole loop runs inside ``jax.jit(lax.while_loop)`` with a fused
+    ``value_and_grad`` per iteration, tolerance-based stopping, history
+    sampling, and compile/execution timing -- none of that lives in sdplab.
+    """
+    if opt is None:
+        import optax
 
-    return float(np.linalg.norm(np.asarray(jac).reshape(-1)))
+        opt = optax.adam(learning_rate)
+
+    # Negate through the spacecore functional algebra: optax minimizes -D_eps.
+    F = -_loop_bound(problem)
+    result = minimize_optax(
+        F,
+        init_dual,
+        opt,
+        max_iter=max_iter,
+        tol=tol,
+        verbose=min(int(verbose), 2),
+        **kwargs,
+    )
+
+    history = result.history or {}
+    loss_history = (
+        [-v for v in history["value"]] if "value" in history else None
+    )
+    grad_history = (
+        list(history["grad_norm"]) if "grad_norm" in history else None
+    )
+    return OptimizeResult(
+        dual=result.x_element,
+        converged=bool(result.success),
+        num_iters=int(result.num_iters),
+        final_loss=-float(result.final_value),
+        final_grad_norm=float(result.final_grad_norm),
+        elapsed_seconds=float(result.execution_seconds),
+        loss_history=loss_history,
+        grad_norm_history=grad_history,
+        raw=result,
+        extra={"compile_seconds": result.compile_seconds},
+    )
 
 
-__all__ = ["run_regularized_solver", "solve_scipy"]
+__all__ = ["run_regularized_solver"]
