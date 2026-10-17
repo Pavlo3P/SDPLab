@@ -117,4 +117,9 @@ jobs:
           name: dist
           path: dist/
 
+      # A dispatch to `pypi` followed by cutting the release re-runs this job on
+      # identical artifacts, and PyPI rejects a repeated filename with a 400.
+      # Treat an already-published file as satisfied rather than as a failure.
       - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
