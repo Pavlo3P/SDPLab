@@ -83,8 +83,8 @@ from spacecore import (
     DenseLinOp, SparseLinOp,
     EuclideanJordanAlgebraSpace, HermitianSpace,
     InnerProductSpace, TreeElement, TreeSpace,
-    jax_pytree_class,
 )
+from spacecore.backend import PyTreeNode
 from spacecore.linop import LinOp
 
 from ._constraint import (
@@ -171,9 +171,8 @@ def _dispatch_constraint(A: LinOp, ctx: Context) -> ConstraintOp:
     )
 
 
-@jax_pytree_class
 @dataclass(init=False)
-class SDPProblem(ContextBound):
+class SDPProblem(ContextBound, PyTreeNode):
     r"""Base representation of a conic problem with linear equality constraints.
 
     An instance stores the triple :math:`(C, \mathcal{A}, b)` from the

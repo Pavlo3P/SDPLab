@@ -14,8 +14,8 @@
 
 """Solver entry points and convergence records.
 
-First-order regularized dual solves are delegated to ``spacecore.optimize``
-(:func:`spacecore.minimize_scipy` / :func:`spacecore.minimize_optax`) through
+First-order regularized dual solves are delegated to ``spacecore_optimize``
+(:func:`spacecore_optimize.minimize_scipy` / :func:`spacecore_optimize.minimize_optax`) through
 :func:`run_regularized_solver`.
 """
 

@@ -123,7 +123,7 @@ Solving
 
 Couple a problem to a regularizer, bind :math:`\varepsilon`, and hand the
 result to the solver. ``bind`` returns a standard single-argument
-:class:`spacecore.Functional`, so the ``spacecore.optimize`` drivers consume it
+:class:`spacecore.Functional`, so the ``spacecore_optimize`` drivers consume it
 directly.
 
 .. code-block:: python

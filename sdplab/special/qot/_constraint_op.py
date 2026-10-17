@@ -48,13 +48,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from spacecore import DenseArray, HermitianSpace, SparseArray, StackedSpace, jax_pytree_class, Context, checked_method
+from spacecore import DenseArray, HermitianSpace, SparseArray, StackedSpace, Context, checked_method, use_check_level
 
 from ...linalg import kron_sum
 from ...linalg.dense._ptrace import make_perm, _compute_ptraces
 from ...problem import MatrixFreeConstraintOp
 
-@jax_pytree_class
 class QOTConstraintOp(MatrixFreeConstraintOp):
     r"""Partial-trace operator :math:`\mathcal{A}` for quantum optimal transport.
 
@@ -237,8 +236,13 @@ class QOTConstraintOp(MatrixFreeConstraintOp):
         return cls(d=d, N=N, atol=atol, rtol=rtol, enforce_herm=enforce_herm, ctx=ctx)
 
     def _convert(self, new_ctx: Context) -> QOTConstraintOp:
-        """Return an equivalent operator in ``new_ctx``."""
-        return QOTConstraintOp(d=self.d, N=self.N, atol=self.dom.atol, rtol=self.dom.rtol, enforce_herm=self.dom.enforce_herm, ctx=new_ctx)
+        """Return an equivalent operator in ``new_ctx``.
+
+        The spaces are rebuilt by the constructor, so they are built under this
+        operator's check level rather than the ambient default.
+        """
+        with use_check_level(self.check_level):
+            return QOTConstraintOp(d=self.d, N=self.N, atol=self.dom.atol, rtol=self.dom.rtol, enforce_herm=self.dom.enforce_herm, ctx=new_ctx)
 
     def _herm_generators(self):
         r"""Yield the real-coordinate Hermitian generators of a ``d x d`` block.

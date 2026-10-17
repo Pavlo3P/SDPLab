@@ -32,9 +32,10 @@ pairing with the primal variable. This module keeps that concept explicit:
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from typing import Any, Generic, TypeVar
 
+from spacecore.backend import PyTreeNode
 from spacecore import (
     Context,
     ContextBound,
@@ -49,7 +50,6 @@ from spacecore import (
     SparseLinOp,
     TreeElement,
     TreeSpace,
-    jax_pytree_class,
     resolve_context_priority,
 )
 
@@ -57,7 +57,7 @@ from spacecore import (
 MSpace = TypeVar("MSpace", bound=EuclideanJordanAlgebraSpace)
 
 
-class Cost(ContextBound, ABC, Generic[MSpace]):
+class Cost(ContextBound, PyTreeNode, Generic[MSpace]):
     r"""Abstract cost :math:`X \mapsto \langle C, X\rangle` on a Jordan domain.
 
     The two operations every solver needs:
@@ -118,7 +118,6 @@ class Cost(ContextBound, ABC, Generic[MSpace]):
         return self.ops.assparse(self.to_dense())
 
 
-@jax_pytree_class
 class ElementCost(Cost[EuclideanJordanAlgebraSpace]):
     """A cost stored directly as a domain element (works on any EJA, incl. trees)."""
 
@@ -277,7 +276,6 @@ class HermitianCost(Cost[HermitianSpace]):
         return SparseHermitianCost(matrix, matrix_space, ctx)
 
 
-@jax_pytree_class
 class DenseHermitianCost(HermitianCost):
     """Hermitian cost backed by a dense matrix."""
 
@@ -353,7 +351,6 @@ class DenseHermitianCost(HermitianCost):
         return obj
 
 
-@jax_pytree_class
 class SparseHermitianCost(HermitianCost):
     """Hermitian cost backed by a sparse matrix.
 

@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Dispatcher for smooth regularized dual solves via ``spacecore.optimize``.
+"""Dispatcher for smooth regularized dual solves via ``spacecore_optimize``.
 
 No optimization loop lives here. Iteration, line search, convergence testing,
-history recording, and timing are owned by :func:`spacecore.minimize_scipy` and
-:func:`spacecore.minimize_optax`; this module only fixes the maximization sign
+history recording, and timing are owned by :func:`spacecore_optimize.minimize_scipy` and
+:func:`spacecore_optimize.minimize_optax`; this module only fixes the maximization sign
 and translates results into the package-level :class:`OptimizeResult`.
 
 The entry point takes a :class:`BoundDualFunctional` -- ε and the normalization
@@ -29,10 +29,10 @@ from __future__ import annotations
 
 import logging
 
-from spacecore import minimize_optax, minimize_scipy
+from spacecore_optimize import minimize_optax, minimize_scipy
 
 from ..regularization import BoundDualFunctional
-from ._common import OptimizeResult, loop_functional, problem_summary
+from ._common import OptimizeResult, problem_summary
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +61,8 @@ def run_regularized_solver(
         opt: Optax optimizer for the ``optax`` route (default
             ``optax.adam(learning_rate)``).
         **kwargs: Forwarded to the underlying driver
-            (:func:`spacecore.minimize_scipy` /
-            :func:`spacecore.minimize_optax`).
+            (:func:`spacecore_optimize.minimize_scipy` /
+            :func:`spacecore_optimize.minimize_optax`).
 
     Returns:
         An :class:`OptimizeResult` whose ``final_loss``/``loss_history``
@@ -98,17 +98,6 @@ def run_regularized_solver(
     raise ValueError(f"Unknown method {method!r}; use 'scipy' or 'optax'.")
 
 
-def _loop_bound(problem: BoundDualFunctional) -> BoundDualFunctional:
-    """Return ``problem`` with runtime membership checks disabled.
-
-    :func:`loop_functional` converts the eps-per-call base, so the bound view
-    is rebuilt around it carrying the same ``eps_val`` and ``normalized``.
-    """
-    return loop_functional(problem.base).bind(
-        problem.eps_val, normalized=problem.normalized
-    )
-
-
 def _solve_scipy(
     problem: BoundDualFunctional,
     init_dual,
@@ -119,9 +108,9 @@ def _solve_scipy(
     scipy_method: str = "L-BFGS-B",
     **kwargs,
 ) -> OptimizeResult:
-    """Maximize the dual with :func:`spacecore.minimize_scipy` (L-BFGS-B default).
+    """Maximize the dual with :func:`spacecore_optimize.minimize_scipy` (L-BFGS-B default).
 
-    :func:`spacecore.minimize_scipy` requires a real inner-product domain --
+    :func:`spacecore_optimize.minimize_scipy` requires a real inner-product domain --
     it flattens through ``F.domain.flatten`` and hands SciPy real coordinate
     vectors -- so a complex codomain is rejected up front rather than left to
     fail inside SciPy.
@@ -133,14 +122,14 @@ def _solve_scipy(
     cod = problem.domain
     if getattr(cod, "field", "real") != "real":
         raise NotImplementedError(
-            "method='scipy' needs a real codomain; spacecore.minimize_scipy "
+            "method='scipy' needs a real codomain; spacecore_optimize.minimize_scipy "
             f"cannot flatten {type(cod).__name__} (field="
             f"{getattr(cod, 'field', None)!r}) into real coordinates. Use "
             "method='optax' on a JAX backend."
         )
 
     # Negate through the spacecore functional algebra: SciPy minimizes -D_eps.
-    F = -_loop_bound(problem)
+    F = -problem
 
     if int(verbose) >= 1:
         logger.info(
@@ -199,7 +188,7 @@ def _solve_optax(
         opt = optax.adam(learning_rate)
 
     # Negate through the spacecore functional algebra: optax minimizes -D_eps.
-    F = -_loop_bound(problem)
+    F = -problem
     result = minimize_optax(
         F,
         init_dual,

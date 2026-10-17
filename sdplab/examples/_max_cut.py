@@ -23,13 +23,12 @@ from spacecore import (
     LinOp,
     NumpyOps,
     checked_method,
-    jax_pytree_class,
+    use_check_level,
 )
 
 from sdplab.problem import SDPProblem
 
 
-@jax_pytree_class
 class MaxCutOperator(LinOp[HermitianSpace, DenseVectorSpace]):
     r"""Diagonal-extraction operator :math:`\mathcal{A}` for the Max-Cut SDP.
 
@@ -124,6 +123,7 @@ def generate_erdos_renyi_graph_laplacian(
     return L
 
 
+@use_check_level("none")
 def generate_max_cut(
     n: int,
     p: float = 0.3,
@@ -148,7 +148,7 @@ def generate_max_cut(
     when a unit-trace primal is assumed, as by the fixed-trace (log-partition)
     form of the entropy dual.
     """
-    np_ctx = Context(NumpyOps(), dtype="float64", check_level="none")
+    np_ctx = Context(NumpyOps(), dtype="float64")
 
     L = generate_erdos_renyi_graph_laplacian(n, p, seed, weighted, weight_low, weight_high)
     C = -L / 4  # Minus to turn maximization into minimization

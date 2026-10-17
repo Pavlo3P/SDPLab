@@ -33,7 +33,7 @@ import numpy as np
 import pytest
 import scipy.linalg as sla
 
-from spacecore import Context, NumpyOps
+from spacecore import Context, NumpyOps, use_check_level
 
 from sdplab.problem import SDPProblem
 from sdplab.regularization import (
@@ -53,9 +53,10 @@ def jax_complex_ctx():
     pytest.importorskip("jax")
     from spacecore import JaxOps
 
-    return Context(JaxOps(), dtype="complex128", check_level="none")
+    return Context(JaxOps(), dtype="complex128")
 
 
+@use_check_level("none")
 def _instance(psi_prime, eps=EPS, d=D_LOCAL, N=N_SITES, seed=0):
     """Return ``(sdp, X_star, U)`` whose regularized optimum is ``X_star``.
 
@@ -63,7 +64,7 @@ def _instance(psi_prime, eps=EPS, d=D_LOCAL, N=N_SITES, seed=0):
     optimum would coincide with the solver's default cold start and the test
     would pass without anything being optimized.
     """
-    ctx = Context(NumpyOps(), dtype=np.complex128, check_level="none")
+    ctx = Context(NumpyOps(), dtype=np.complex128)
     dim = d**N
     rng = np.random.default_rng(seed)
 

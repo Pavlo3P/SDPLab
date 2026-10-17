@@ -131,5 +131,5 @@ $\mathcal{A}$:
 
 Everything is written against spacecore's backend contract, so NumPy, JAX, and
 torch contexts all work. `run_regularized_solver` picks
-`spacecore.minimize_optax` on a JAX backend and `spacecore.minimize_scipy`
+`spacecore_optimize.minimize_optax` on a JAX backend and `spacecore_optimize.minimize_scipy`
 otherwise. 

@@ -19,7 +19,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from spacecore import Context
 
 from ..regularization import RegularizedSDPDualFunctional
 
@@ -57,18 +56,6 @@ class OptimizeResult:
         )
 
 
-def loop_functional(problem: RegularizedSDPDualFunctional) -> RegularizedSDPDualFunctional:
-    """Return an equivalent functional with runtime membership checks disabled.
-
-    Compiled and autodiff loops evaluate the functional many times; the
-    ``check_level="none"`` context skips the per-array Hermitian/shape
-    validation (an ``allclose`` that also cannot trace under ``jit``) while
-    preserving backend and dtype.
-    """
-    ctx = Context(problem.ops, dtype=problem.dtype, check_level="none")
-    return problem.convert(ctx)
-
-
 def problem_summary(problem: RegularizedSDPDualFunctional, eps: float) -> str:
     """Return a compact problem summary for solver logs."""
     return (
@@ -77,4 +64,4 @@ def problem_summary(problem: RegularizedSDPDualFunctional, eps: float) -> str:
     )
 
 
-__all__ = ["OptimizeResult", "loop_functional", "problem_summary"]
+__all__ = ["OptimizeResult", "problem_summary"]

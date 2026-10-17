@@ -20,8 +20,8 @@ from spacecore import (
     ElementwiseJordanSpace,
     EuclideanElementwiseJordanSpace,
     HermitianSpace,
+    Context,
 )
-from spacecore.backend import Context
 
 
 def _real_context(ctx: Context) -> Context:
@@ -29,13 +29,13 @@ def _real_context(ctx: Context) -> Context:
 
     Spectra of Euclidean-Jordan elements (Hermitian matrices, elementwise
     algebras) are always real, so eigenvalue vectors live in a real context
-    even when the algebra elements are complex. Backend family and validation
-    policy are preserved.
+    even when the algebra elements are complex. The backend family is
+    preserved; the validation policy lives on the spaces, not the context.
     """
     real_dtype = ctx.ops.real_dtype(ctx.dtype)
     if real_dtype == ctx.dtype:
         return ctx
-    return Context(ctx.ops, dtype=real_dtype, check_level=ctx.check_level)
+    return Context(ctx.ops, dtype=real_dtype)
 
 
 def create_eigval_space(
@@ -63,13 +63,15 @@ def create_eigval_space(
     if isinstance(obj_space, HermitianSpace):
         # Eigenvalues of an (n, n) Hermitian matrix form a real length-n vector.
         return EuclideanElementwiseJordanSpace(
-            (obj_space.n,), ctx=_real_context(obj_space.ctx)
+            (obj_space.n,), ctx=_real_context(obj_space.ctx),
+            check_level=obj_space.check_level,
         )
 
     if isinstance(obj_space, ElementwiseJordanSpace):
         # Elementwise Jordan spectrum is the identity: same shape, real field.
         return EuclideanElementwiseJordanSpace(
-            obj_space.shape, ctx=_real_context(obj_space.ctx)
+            obj_space.shape, ctx=_real_context(obj_space.ctx),
+            check_level=obj_space.check_level,
         )
 
     raise TypeError(
