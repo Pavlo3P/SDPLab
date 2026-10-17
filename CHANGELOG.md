@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.0.2] - 2026-10-17
 
 Ported to `spacecore >= 0.5, < 0.6`; the optimizer adapters now come from the
 separate `spacecore-optimize` package.
