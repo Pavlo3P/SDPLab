@@ -76,15 +76,15 @@ your own, use the operator directly:
 
 .. code-block:: python
 
-   from spacecore import Context, NumpyOps
+   from spacecore import Context, NumpyOps, use_check_level
    from sdplab.problem import SDPProblem
    from sdplab.special.qot import QOTConstraintOp
 
-   ctx = Context(NumpyOps(), dtype=np.complex128, check_level="none")
-   op = QOTConstraintOp(d=2, N=2, ctx=ctx)
-
-   gamma = op.apply(ctx.asarray(rho))      # marginals of a chosen state rho
-   sdp = SDPProblem(ctx.asarray(H), op, gamma, ctx=ctx)
+   ctx = Context(NumpyOps(), dtype=np.complex128)
+   with use_check_level("none"):
+       op = QOTConstraintOp(d=2, N=2, ctx=ctx)
+       gamma = op.apply(ctx.asarray(rho))  # marginals of a chosen state rho
+       sdp = SDPProblem(ctx.asarray(H), op, gamma, ctx=ctx)
 
 A dedicated dual solver, :func:`~sdplab.special.qot.solve_qot_dual`, models the
 dual directly in CVXPY instead of going through the per-constraint encoding.
@@ -95,7 +95,7 @@ What makes QOT the structured case
 The codomain is a *stack* of Hermitian blocks rather than a flat vector, so the
 dual variable is a tuple of matrices. Two consequences worth knowing:
 
-* The scipy route rejects it. :func:`spacecore.minimize_scipy` needs a real
+* The scipy route rejects it. :func:`spacecore_optimize.minimize_scipy` needs a real
   codomain, and this one is complex, so
   :func:`~sdplab.solvers.run_regularized_solver` raises rather than failing
   inside SciPy. Either use the optax route on a JAX backend, or wrap the bound

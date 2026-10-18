@@ -40,11 +40,12 @@ The measurement map is a dense tensor contraction and nothing more, so it is a
 from __future__ import annotations
 
 import numpy as np
-from spacecore import Context, DenseArray, DenseVectorSpace, HermitianSpace, NumpyOps
+from spacecore import Context, DenseArray, DenseVectorSpace, HermitianSpace, NumpyOps, use_check_level
 
 from ...problem import DenseConstraintOp, SDPProblem
 
 
+@use_check_level("none")
 def generate_qubit_tomography(
     M: DenseArray,
     b_obs: DenseArray,
@@ -113,7 +114,7 @@ def generate_qubit_tomography(
 
     m, d = M.shape[0], M.shape[-1]
     dtype = "complex128" if np.iscomplexobj(M) else "float64"
-    np_ctx = Context(NumpyOps(), dtype=dtype, check_level="none")
+    np_ctx = Context(NumpyOps(), dtype=dtype)
 
     # Append Tr[X] = 1 as one extra measurement of the identity.
     M_full = np.concatenate([M.astype(dtype), np.eye(d, dtype=dtype)[None]], axis=0)

@@ -19,11 +19,11 @@ from typing import Any, Callable, Tuple
 from abc import abstractmethod
 from dataclasses import dataclass
 
+from spacecore.backend import PyTreeNode
 from spacecore import (
     DenseArray,
     ArrayLike,
     Context,
-    jax_pytree_class,
     ContextBound,
     EuclideanJordanAlgebraSpace,
     TreeSpace,
@@ -45,9 +45,8 @@ SpaceElement = Any
 NEG_EIG_TOL = 1e-12
 
 
-@jax_pytree_class
 @dataclass(init=False)
-class Regularizer(ContextBound):
+class Regularizer(ContextBound, PyTreeNode):
     r"""Base class for scalar spectral regularizers."""
 
     def __init__(

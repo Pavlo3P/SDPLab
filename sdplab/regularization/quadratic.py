@@ -32,11 +32,10 @@ Its Legendre transform is applied spectrally to the scaled dual slack
     \qquad y \in \operatorname{cod}(\mathcal{A}).
 """
 
-from spacecore import DenseArray, jax_pytree_class
+from spacecore import DenseArray
 from ._base import NEG_EIG_TOL, Regularizer
 
 
-@jax_pytree_class
 class QuadraticReg(Regularizer):
     r"""Quadratic spectral regularizer on nonnegative spectra.
 

@@ -12,12 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from spacecore import jax_pytree_class, DenseArray
+from spacecore import DenseArray
 
 from ._base import NEG_EIG_TOL, Regularizer
 
 
-@jax_pytree_class
 class EntropyReg(Regularizer):
     r"""Entropy regularizer, :math:`\varphi(t) = t(\log t - 1)`.
 

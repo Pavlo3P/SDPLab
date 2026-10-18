@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 import scipy.sparse as sps
 
-from spacecore import Context, LinOp, NumpyOps, SparseLinOp
+from spacecore import Context, LinOp, NumpyOps, SparseLinOp, use_check_level
 
 from sdplab.examples import generate_max_cut, generate_random_qot
 from sdplab.problem import (
@@ -323,6 +323,7 @@ def test_element_cost_has_no_cvxpy_form():
 # ---------------------------------------------------------------------------
 
 
+@use_check_level("none")
 def _qot_from_ground_state(d, N, seed):
     """Return ``(sdp, lambda_min)`` for marginals read off the ground state of C.
 
@@ -333,7 +334,7 @@ def _qot_from_ground_state(d, N, seed):
     Tr[Gamma] = lambda_min(C). The QOT optimum is therefore *exactly*
     lambda_min(C) -- a closed-form reference that needs no second solver.
     """
-    ctx = Context(NumpyOps(), dtype=np.complex128, check_level="none")
+    ctx = Context(NumpyOps(), dtype=np.complex128)
     D = d ** N
     rng = np.random.default_rng(seed)
     M = rng.normal(size=(D, D)) + 1j * rng.normal(size=(D, D))

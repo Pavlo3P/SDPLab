@@ -55,7 +55,6 @@ from spacecore import (
     InnerProductSpace,
     DenseArray,
     SparseArray,
-    jax_pytree_class,
 )
 
 
@@ -100,7 +99,7 @@ class ConstraintOp(LinOp[EuclideanJordanAlgebraSpace, InnerProductSpace]):
         unflattens ``y`` back into ``cod``; structured codomains override. The
         caller (solver) is responsible for the dual sign.
         """
-        return self.cod.unflatten(y)
+        return self.cod.unflatten(self.cod.ctx.asarray(y))
 
     @classmethod
     def from_linop(cls, op: LinOp) -> ConstraintOp:
@@ -128,7 +127,6 @@ class MatrixFreeConstraintOp(ConstraintOp):
         return [self.rapply(self.cod.unflatten(eye[i])) for i in range(m)]
 
 
-@jax_pytree_class
 class WrappedConstraintOp(MatrixFreeConstraintOp):
     r"""Adapt an arbitrary :class:`~spacecore.LinOp` into a constraint operator.
 
@@ -191,7 +189,6 @@ class WrappedConstraintOp(MatrixFreeConstraintOp):
         return cls(op)
 
 
-@jax_pytree_class
 class DenseConstraintOp(ConstraintOp, DenseLinOp):
     r"""Constraint operator backed by a dense coordinate tensor.
 
@@ -222,7 +219,6 @@ class DenseConstraintOp(ConstraintOp, DenseLinOp):
         return cls(op.A, op.dom, op.cod, op.ctx)
 
 
-@jax_pytree_class
 class SparseConstraintOp(ConstraintOp, SparseLinOp):
     r"""Constraint operator backed by a sparse coordinate matrix.
 

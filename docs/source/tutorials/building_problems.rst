@@ -91,7 +91,7 @@ The backend asks the constraint operator for its per-constraint matrices
 For the smoothed-dual route instead, see :doc:`regularization`.
 
 A complex codomain -- stacked Hermitian blocks, say -- is fine for the problem
-itself, but :func:`spacecore.minimize_scipy` needs a real domain, so the scipy
+itself, but :func:`spacecore_optimize.minimize_scipy` needs a real domain, so the scipy
 route refuses one. :func:`spacecore.realify` (spacecore 0.4.3 and later) bridges
 that: it returns a functional unchanged when the domain is already real, and
 otherwise presents it over stacked real coordinates.

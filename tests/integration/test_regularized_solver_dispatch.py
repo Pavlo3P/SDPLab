@@ -80,7 +80,7 @@ def test_scipy_route_converges_to_cvxpy_objective(scipy_result, cvxpy_objective)
 def test_scipy_route_raw_is_scipy_optimize_result(scipy_result):
     scipy_optimize = pytest.importorskip("scipy.optimize")
     assert isinstance(scipy_result.raw, scipy_optimize.OptimizeResult)
-    # spacecore.minimize_scipy attaches the decoded space element to the result.
+    # spacecore_optimize.minimize_scipy attaches the decoded space element to the result.
     assert hasattr(scipy_result.raw, "x_element")
     assert scipy_result.dual.shape == (8,)
 
@@ -92,7 +92,7 @@ def test_scipy_route_raw_is_scipy_optimize_result(scipy_result):
 
 def test_optax_lbfgs_route_matches_scipy_route(jax_maxcut_functional, scipy_result):
     optax = pytest.importorskip("optax")
-    from spacecore import OptaxResult
+    from spacecore_optimize import OptaxResult
 
     result = run_regularized_solver(
         jax_maxcut_functional.bind(EPS),
@@ -123,7 +123,7 @@ def test_auto_dispatch_numpy_uses_scipy(maxcut_functional):
 
 def test_auto_dispatch_jax_uses_optax(jax_maxcut_functional):
     pytest.importorskip("optax")
-    from spacecore import OptaxResult
+    from spacecore_optimize import OptaxResult
 
     # Only the dispatch target matters here; keep the run short.
     result = run_regularized_solver(

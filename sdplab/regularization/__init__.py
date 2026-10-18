@@ -25,7 +25,7 @@ it is supplied per call. :class:`RegularizedSDPDualFunctional` couples a
 penalty to a base :class:`~sdplab.problem.SDPProblem` as a spacecore
 :class:`~spacecore.Functional` over the constraint codomain; its
 :meth:`~RegularizedSDPDualFunctional.bind` method fixes :math:`\varepsilon`
-for the single-argument optimizer adapters in ``spacecore.optimize``.
+for the single-argument optimizer adapters in ``spacecore_optimize``.
 
 Every regularizer's smoothed dual term (:meth:`Regularizer.legendre`) has a
 ``normalized`` flag: ``False`` gives the free separable conjugate, ``True``

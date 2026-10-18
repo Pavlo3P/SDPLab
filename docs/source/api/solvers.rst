@@ -1,7 +1,7 @@
 Solvers API
 ===========
 
-Entry points. First-order solves are delegated to ``spacecore.optimize``;
+Entry points. First-order solves are delegated to ``spacecore_optimize``;
 ``run_cvxpy_solver`` is the reference backend.
 
 .. autosummary::

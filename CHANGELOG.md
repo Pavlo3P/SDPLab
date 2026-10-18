@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.0.2] - 2026-10-17
+
+Ported to `spacecore >= 0.5, < 0.6`; the optimizer adapters now come from the
+separate `spacecore-optimize` package.
+
+### Changed
+
+- Pytree registration uses SpaceCore's `PyTreeNode` base instead of the removed
+  `jax_pytree_class` decorator; `minimize_scipy`/`minimize_optax` are imported
+  from `spacecore_optimize`.
+- Validation policy is per object, not per `Context`: the example builders build
+  under `use_check_level("none")`, eigenvalue spaces inherit the check level of
+  the space they describe, and `QOTConstraintOp.convert` keeps its level.
+- `ConstraintOp.dual_from_cvxpy` casts the solver's real vector to the codomain
+  dtype before `unflatten`, which now checks it.
+
+### Removed
+
+- `solvers._common.loop_functional`: SpaceCore 0.5 turns checks off while a
+  backend traces, which was its purpose under `jax.jit`.
+
 ## [0.0.1] - 2026-08-16
 
 Initial release, built on `spacecore >= 0.4.2, < 0.5`. Problem data, spectral

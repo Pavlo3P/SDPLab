@@ -23,8 +23,9 @@ from typing import Iterable, Sequence, Tuple, Any
 from itertools import product
 import math
 
-from spacecore import Context, DenseArray, jax_pytree_class, BackendOps, ContextBound, resolve_context_priority
-from spacecore._contextual import normalize_context
+from spacecore import Context, DenseArray, BackendOps, ContextBound, resolve_context_priority
+from spacecore.backend import PyTreeNode
+from spacecore.contextual import normalize_context
 
 from ._pauli import pauli_matrices, _PAULI_TO_CODE, _CODE_TO_PAULI, _MUL_TABLE
 
@@ -170,9 +171,8 @@ def _apply_one_site_mat(
     return ops.einsum(eq, M, X)
 
 
-@jax_pytree_class
 @dataclass(init=False)
-class PauliString(ContextBound):
+class PauliString(ContextBound, PyTreeNode):
     r"""Symbolic tensor-product Pauli operator.
 
     A label such as ``"IXZ"`` represents
@@ -421,9 +421,8 @@ class PauliString(ContextBound):
         return self.phase * Y if self.phase != 1 else Y
 
 
-@jax_pytree_class
 @dataclass(init=False)
-class PauliSum(ContextBound):
+class PauliSum(ContextBound, PyTreeNode):
     r"""Symbolic linear combination of Pauli strings.
 
     Represents an operator

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any, Self, Tuple
 
-from spacecore import Context, Functional, jax_pytree_class
+from spacecore import Context, Functional
 
 from ._base import Regularizer
 from ..problem import SDPProblem
@@ -29,7 +29,6 @@ def _logsumexp(x):
     return m + float(np.log(np.sum(np.exp(np.asarray(x) - m))))
 
 
-@jax_pytree_class
 class RegularizedSDPDualFunctional(Functional):
     r"""Smooth regularized dual objective of a conic problem as a :class:`Functional`.
 
@@ -130,8 +129,8 @@ class RegularizedSDPDualFunctional(Functional):
         """Return a single-argument functional with ``eps_val`` baked in.
 
         The result satisfies the plain :class:`~spacecore.Functional` contract
-        and can be handed to :func:`spacecore.minimize_scipy` /
-        :func:`spacecore.minimize_optax`. To hand this maximization objective to
+        and can be handed to :func:`spacecore_optimize.minimize_scipy` /
+        :func:`spacecore_optimize.minimize_optax`. To hand this maximization objective to
         a minimizer, negate through the functional algebra: ``-problem.bind(eps)``.
         """
         return BoundDualFunctional(self, eps_val, normalized=normalized)
@@ -163,12 +162,11 @@ class RegularizedSDPDualFunctional(Functional):
         return obj
 
 
-@jax_pytree_class
 class BoundDualFunctional(Functional):
     r"""A :class:`RegularizedSDPDualFunctional` with ε fixed.
 
     Satisfies the single-argument :class:`~spacecore.Functional` contract
-    expected by the ``spacecore.optimize`` adapters, reporting the same
+    expected by the ``spacecore_optimize`` adapters, reporting the same
     maximization objective as its base (use ``-bound`` for a minimization
     view). ``eps_val`` is a pytree leaf, so continuation schedules can rebuild
     bound functionals per ε without retriggering ``jax.jit`` compilation.

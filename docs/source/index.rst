@@ -5,7 +5,7 @@ SDPLab is a Python library for constructing, regularizing, and solving
 semidefinite programs. It builds on `spacecore
 <https://pypi.org/project/spacecore/>`_ spaces and linear operators, so the
 mathematical objects in an SDP are represented directly in code, and delegates
-every first-order optimization loop to ``spacecore.optimize``.
+every first-order optimization loop to ``spacecore_optimize``.
 
 * :doc:`tutorials/index` explains the main ideas with worked examples.
 * :doc:`api/index` provides object-level reference pages, generated from each

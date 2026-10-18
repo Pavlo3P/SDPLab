@@ -23,11 +23,12 @@ therefore feasible by construction.
 from typing import Any, Optional, Tuple
 import numpy as np
 
-from spacecore import Context, NumpyOps
+from spacecore import Context, NumpyOps, use_check_level
 from ...special.qot import QOTConstraintOp
 from ...problem import SDPProblem
 
 
+@use_check_level("none")
 def generate_random_qot(
         d: int, N: int,
         proportions: tuple[float, ...],
@@ -115,7 +116,7 @@ def generate_random_qot(
     evals, evecs = np.linalg.eigh(cost_matrix)
 
     # Compute ground state energy and density matrix
-    np_ctx = Context(NumpyOps(), dtype=np.complex128, check_level="none")
+    np_ctx = Context(NumpyOps(), dtype=np.complex128)
     Gamma = sum(p * np.outer(v, v.conj()) for p, v in zip(proportions, evecs.T))
     Gamma = (Gamma + Gamma.T.conj()) * .5
     qot_op = QOTConstraintOp(d=d, N=N, atol=atol, rtol=rtol, enforce_herm=enforce_herm, ctx=np_ctx)
