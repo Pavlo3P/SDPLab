@@ -13,3 +13,7 @@
 # limitations under the License.
 
 """Specialized SDP model builders and operator families."""
+
+from . import pauli, qot
+
+__all__ = ["pauli", "qot"]

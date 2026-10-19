@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.0.3] - 2026-10-18
+
+### Fixed
+
+- `sdplab.examples`, `sdplab.special`, `sdplab.linalg` and `sdplab.solvers` are
+  reachable as attributes after a bare `import sdplab` (resolved lazily, so
+  CVXPY still loads only on first use).
+- `sdplab.special` exposes its `pauli` and `qot` submodules.
+
 ## [0.0.2] - 2026-10-17
 
 Ported to `spacecore >= 0.5, < 0.6`; the optimizer adapters now come from the
