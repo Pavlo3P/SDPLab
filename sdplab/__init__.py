@@ -72,6 +72,9 @@ _LAZY = {
     "run_regularized_solver": "sdplab.solvers",
     "run_cvxpy_solver": "sdplab.solvers",
 }
+# Subpackages resolve the same way, so ``sdplab.examples`` works after a bare
+# ``import sdplab`` without importing CVXPY up front.
+_SUBPACKAGES = {"problem", "regularization", "solvers", "examples", "linalg", "special"}
 
 if TYPE_CHECKING:  # type checkers and IDEs do not run __getattr__
     from .solvers import run_cvxpy_solver, run_regularized_solver
@@ -79,11 +82,13 @@ if TYPE_CHECKING:  # type checkers and IDEs do not run __getattr__
 
 def __getattr__(name: str):
     """Resolve the lazily-exported solver entry points on first access."""
+    import importlib
+
+    if name in _SUBPACKAGES:
+        return importlib.import_module(f"{__name__}.{name}")  # import caches it
     module = _LAZY.get(name)
     if module is None:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    import importlib
-
     value = getattr(importlib.import_module(module), name)
     globals()[name] = value          # cache, so this runs once per name
     return value
@@ -91,7 +96,7 @@ def __getattr__(name: str):
 
 def __dir__() -> list[str]:
     """Include the lazy names in ``dir(sdplab)`` and tab completion."""
-    return sorted(set(globals()) | set(_LAZY))
+    return sorted(set(globals()) | set(_LAZY) | _SUBPACKAGES)
 
 
 __all__ = [
